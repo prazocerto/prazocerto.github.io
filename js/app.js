@@ -453,6 +453,8 @@ async function salvarFormTarefa(evento) {
 }
 
 function concluir(id, botao) {
+  const antes = Store.getTarefa(id);
+  if (antes && !antes.concluida) guardarRascunhoAoConcluir(id);
   const t = Store.alternarConclusao(id);
   if (!t) return;
   if (t.concluida) {
@@ -867,6 +869,8 @@ function terminarCiclo({ pulou = false } = {}) {
     saidasDoCiclo = 0;
     if (tarefa) Store.adicionarFoco(tarefa.id, minutos);
     timer.ciclos++;
+    const notasSalvas = salvarNotasNaTarefa({ silencioso: true });
+    if (notasSalvas) setTimeout(() => toast('📝 Suas anotações do foco foram salvas na tarefa.'), 400);
     tocarAlarme('🍅 Ciclo concluído! Hora da pausa.');
     if (document.visibilityState !== 'visible') mostrarNotificacao('🍅 Ciclo concluído! +5 XP', 'Hora da pausa: levante, beba água e alongue-se.', 'pomodoro');
     toast(`🍅 Ciclo concluído! +5 XP. Hora da pausa.`);
@@ -915,6 +919,7 @@ function montarSelectTarefaFoco() {
 function renderFoco() {
   if (window.Nuvem) window.Nuvem.renderEstudandoAgora();
   montarSelectTarefaFoco();
+  renderFocoSessao();
   renderFocoHoje();
   atualizarTimerUI();
 }
@@ -933,6 +938,81 @@ function renderFocoHoje() {
       const t = s.tarefaId ? Store.getTarefa(s.tarefaId) : null;
       return `<li><span>${t ? esc(t.titulo) : s.materia ? esc(infoMateria(s.materia).nome) : 'Foco livre'}</span><span>${hora(new Date(s.inicio))} · ${s.minutos}min</span></li>`;
     }).join('')}</ul>` : '<p class="sub">Nenhum ciclo ainda hoje. Que tal começar agora? 💪</p>'}`;
+}
+
+/* ---------- Nesta sessão: etapas da tarefa + bloco de notas do foco ----------
+   O texto fica como rascunho (por tarefa) enquanto você digita e, quando o ciclo
+   de foco termina, vai para as anotações da tarefa com data e hora. */
+const CHAVE_RASCUNHOS = 'prazocerto:rascunhos-foco';
+const lerRascunhos = () => { try { return JSON.parse(localStorage.getItem(CHAVE_RASCUNHOS)) || {}; } catch (_) { return {}; } };
+function gravarRascunho(chave, texto) {
+  const r = lerRascunhos();
+  if (texto.trim()) r[chave] = texto; else delete r[chave];
+  try { localStorage.setItem(CHAVE_RASCUNHOS, JSON.stringify(r)); } catch (_) {}
+}
+let notasDaTarefa = null; // de qual tarefa é o texto que está no bloco agora
+let timerRascunho = null;
+
+function renderFocoSessao() {
+  const id = timer.tarefaId || '';
+  const t = id ? Store.getTarefa(id) : null;
+  $('#sessao-tarefa').textContent = t ? `${t.titulo} · ${infoMateria(t.materia).nome}` : 'Foco livre (sem tarefa escolhida)';
+  const subs = t ? t.subtarefas || [] : [];
+  const feitas = subs.filter(x => x.feita).length;
+  $('#sessao-etapas').innerHTML = subs.length ? `<div class="sessao-etapas__titulo"><span>Etapas</span><span>${feitas}/${subs.length}</span></div>
+    <ul class="sessao-etapas">${subs.map(x => `<li><label><input type="checkbox" data-acao="sub" data-id="${t.id}" data-sub="${x.id}" ${x.feita ? 'checked' : ''}>
+      <span class="${x.feita ? 'feita' : ''}">${esc(x.texto)}</span></label></li>`).join('')}</ul>` : '';
+  // troca o texto do bloco só quando muda a tarefa (não atrapalha quem está digitando)
+  const campo = $('#foco-notas');
+  if (notasDaTarefa !== id) {
+    notasDaTarefa = id;
+    campo.value = lerRascunhos()[id || 'livre'] || '';
+  }
+  const anteriores = t && t.descricao ? t.descricao.trim() : '';
+  $('#sessao-anteriores').hidden = !anteriores;
+  $('#sessao-anteriores-texto').textContent = anteriores;
+  atualizarStatusNotas();
+}
+
+function atualizarStatusNotas(salvoAgora = false) {
+  const t = timer.tarefaId ? Store.getTarefa(timer.tarefaId) : null;
+  const tem = !!$('#foco-notas').value.trim();
+  $('#btn-salvar-notas').disabled = !t || !tem;
+  $('#foco-notas-status').textContent = !t
+    ? 'Escolha uma tarefa acima para guardar as anotações nela. Sem tarefa, ficam aqui como rascunho.'
+    : salvoAgora ? `✓ Rascunho salvo às ${hora(new Date())}` : tem ? 'Vai para as anotações da tarefa quando o ciclo terminar.' : 'Vai para as anotações da tarefa quando o ciclo terminar.';
+}
+
+/** Junta um texto às anotações da tarefa, com data e hora. */
+function anexarNotas(id, texto) {
+  const t = Store.getTarefa(id);
+  if (!t || !texto.trim()) return false;
+  const agora = new Date();
+  const cabecalho = `🍅 ${maiuscula(dataCurta(agora))} às ${hora(agora)}`;
+  Store.salvarTarefa({ id, descricao: [t.descricao ? t.descricao.trim() : '', `${cabecalho}\n${texto.trim()}`].filter(Boolean).join('\n\n') });
+  return true;
+}
+/** Concluiu a tarefa com rascunho no bloco de notas: o rascunho vai junto para a tarefa. */
+function guardarRascunhoAoConcluir(id) {
+  const texto = (notasDaTarefa === id ? $('#foco-notas').value : lerRascunhos()[id] || '').trim();
+  if (!texto) return;
+  anexarNotas(id, texto);
+  gravarRascunho(id, '');
+  if (notasDaTarefa === id) $('#foco-notas').value = '';
+}
+
+/** Leva o texto do bloco para as anotações da tarefa (com data e hora). */
+function salvarNotasNaTarefa({ silencioso = false } = {}) {
+  const id = timer.tarefaId;
+  const t = id ? Store.getTarefa(id) : null;
+  const texto = $('#foco-notas').value.trim();
+  if (!t || !texto) return false;
+  anexarNotas(id, texto);
+  $('#foco-notas').value = '';
+  gravarRascunho(id, '');
+  renderFocoSessao();
+  if (!silencioso) toast(`📝 Anotações salvas em “${t.titulo}”`, { acao: 'Ver', aoClicar: () => abrirFormTarefa(Store.getTarefa(id)) });
+  return true;
 }
 
 const avisarFocoNuvem = () => { if (window.Nuvem) window.Nuvem.publicarPerfil(); };
@@ -3183,7 +3263,14 @@ function registrarEventos() {
     if (timer.rodando) { toast('Pause o timer antes de trocar de modo.', { tipo: 'erro' }); $$('input[name="modo"]').forEach(r => { r.checked = r.value === timer.modo; }); return; }
     definirModo(e.target.value);
   });
-  $('#timer-tarefa').addEventListener('change', e => { timer.tarefaId = e.target.value; salvarTimer(); });
+  $('#timer-tarefa').addEventListener('change', e => { timer.tarefaId = e.target.value; salvarTimer(); renderFocoSessao(); });
+  $('#foco-notas').addEventListener('input', e => {
+    clearTimeout(timerRascunho);
+    atualizarStatusNotas();
+    const chave = timer.tarefaId || 'livre';
+    timerRascunho = setTimeout(() => { gravarRascunho(chave, e.target.value); atualizarStatusNotas(true); }, 500);
+  });
+  $('#btn-salvar-notas').addEventListener('click', () => salvarNotasNaTarefa());
 
   // Configurações
   $('#form-config').addEventListener('submit', salvarConfig);

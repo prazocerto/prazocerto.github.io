@@ -335,6 +335,22 @@ a.kpi:hover { border-color: var(--primary); }
 .btn--play { min-width: 160px; }
 .timer__status { color: var(--muted); font-weight: 600; margin: 0; text-align: center; min-height: 1.5em; }
 .foco-hoje { padding: 20px 22px; }
+.foco-lado { display: grid; gap: 16px; align-content: start; min-width: 0; }
+.sessao-card { padding: 18px 20px; display: grid; gap: 10px; }
+.sessao-card__topo { display: grid; gap: 2px; }
+.sessao-card__topo .card__title { margin: 0; }
+.sessao-card__topo .sub { margin: 0; font-weight: 600; }
+.sessao-etapas { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.sessao-etapas li { padding: 8px 10px; border-radius: 10px; background: var(--surface-2); }
+.sessao-etapas label { display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; font-size: .92rem; }
+.sessao-etapas input { width: 18px; height: 18px; accent-color: var(--primary); flex: none; }
+.sessao-etapas .feita { text-decoration: line-through; color: var(--muted); }
+.sessao-etapas__titulo { display: flex; justify-content: space-between; font-size: .8rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 6px; }
+.foco-notas { min-height: 130px; resize: vertical; line-height: 1.5; font-family: inherit; }
+.sessao-card__rodape { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.sessao-card__rodape .field__hint { margin: 0; flex: 1 1 180px; }
+.sessao-anteriores summary { cursor: pointer; font-weight: 700; font-size: .88rem; color: var(--primary); }
+.sessao-anteriores div { margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); white-space: pre-wrap; font-size: .88rem; max-height: 220px; overflow: auto; }
 .tomates { display: flex; flex-wrap: wrap; gap: 6px; font-size: 1.6rem; margin: 6px 0 14px; }
 .tomates .vazio-t { filter: grayscale(1); opacity: .3; }
 .sessoes { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }

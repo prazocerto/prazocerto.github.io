@@ -291,12 +291,33 @@
           <p class="timer__status" id="timer-status" aria-live="polite"></p>
         </section>
 
-        <section class="card estudando-agora" id="estudando-agora" aria-labelledby="titulo-estudando" hidden></section>
+        <div class="foco-lado">
+          <section class="card sessao-card" aria-labelledby="titulo-sessao">
+            <div class="sessao-card__topo">
+              <h2 id="titulo-sessao" class="card__title">📝 Nesta sessão</h2>
+              <span class="sub" id="sessao-tarefa"></span>
+            </div>
+            <div id="sessao-etapas"></div>
+            <label for="foco-notas" class="field__label" style="margin:0">Anotações</label>
+            <textarea id="foco-notas" class="input foco-notas" rows="5" maxlength="3000" aria-describedby="foco-notas-status"
+              placeholder="Ideias, dúvidas para levar ao professor, o que falta fazer…"></textarea>
+            <div class="sessao-card__rodape">
+              <p class="field__hint" id="foco-notas-status" aria-live="polite"></p>
+              <button type="button" class="btn btn--ghost btn--sm" id="btn-salvar-notas" disabled>💾 Salvar na tarefa</button>
+            </div>
+            <details class="sessao-anteriores" id="sessao-anteriores" hidden>
+              <summary>Ver anotações já salvas nesta tarefa</summary>
+              <div id="sessao-anteriores-texto"></div>
+            </details>
+          </section>
 
-        <section class="card foco-hoje" aria-labelledby="titulo-foco-hoje">
-          <h2 id="titulo-foco-hoje" class="card__title">🍅 Foco de hoje</h2>
-          <div id="foco-hoje-conteudo"></div>
-        </section>
+          <section class="card estudando-agora" id="estudando-agora" aria-labelledby="titulo-estudando" hidden></section>
+
+          <section class="card foco-hoje" aria-labelledby="titulo-foco-hoje">
+            <h2 id="titulo-foco-hoje" class="card__title">🍅 Foco de hoje</h2>
+            <div id="foco-hoje-conteudo"></div>
+          </section>
+        </div>
       </div>
     </section>
 
@@ -390,7 +411,7 @@
 
       <div class="campo">
         <label for="t-descricao" class="field__label">Anotações</label>
-        <textarea id="t-descricao" class="input" rows="2" maxlength="400" placeholder="Conteúdo, links, materiais…"></textarea>
+        <textarea id="t-descricao" class="input" rows="3" maxlength="6000" placeholder="Conteúdo, links, materiais…"></textarea>
       </div>
 
       <input type="hidden" id="t-grupo-id">

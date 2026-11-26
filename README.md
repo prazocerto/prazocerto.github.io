@@ -95,6 +95,7 @@ prazocerto/
 | 🗓️ **Semestre** | Datas de começo e fim: barra de progresso, dias para as férias, próximas provas e limite de faltas automático |
 | 🎯 **Metas da semana** | Horas de foco e tarefas concluídas (segunda a domingo), com barras no Progresso e a conquista "Meta batida" |
 | 📊 **Relatório da semana** | Na primeira abertura da semana: horas de foco, tarefas, pontualidade e Pomodoros, comparação com a semana anterior, matéria mais estudada, matéria esquecida e dicas |
+| 📝 **Nesta sessão** | Na tela Foco, ao lado do cronômetro: as etapas da tarefa escolhida (para marcar sem sair do foco) e um bloco de notas. O texto fica salvo como rascunho enquanto você digita e, quando o ciclo termina (ou quando você conclui a tarefa), vai para as anotações da tarefa com data e hora |
 | 🎧 **Sons de fundo** | Chuva, ondas do mar, ruído marrom e ruído branco, gerados com Web Audio (sem arquivos). Tocam só com o foco rodando, com volume próprio |
 | 🚫 **Foco sem distração** | Ao sair do app durante o foco (outro app no celular, outra aba ou outra janela no computador), a notificação "Volta pro foco!" sai na hora e o título da aba também chama de volta. Ao voltar, o app mostra quanto tempo você ficou fora. No 1º foco, o app pede a permissão de notificação. As saídas entram no relatório da semana |
 | 📲 **Atalhos do ícone** | Segurando o ícone do app instalado: Nova tarefa, Começar foco, Flashcards e Agenda. O app também aparece no menu "Compartilhar" do celular: um texto compartilhado de outro app (ex.: mensagem do grupo) vira tarefa |
