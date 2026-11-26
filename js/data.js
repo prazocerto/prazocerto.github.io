@@ -65,6 +65,17 @@ const REPETICOES = [
 
 const DIAS_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
+/** Menções (UniCEUB, UnB…): aprova com MM ou melhor. "valor" é o número usado na conta;
+    "min" é o começo da faixa (SS 9–10, MS 7–8,9, MM 5–6,9, MI 3–4,9, II 0,1–2,9, SR 0). */
+const MENCOES = [
+  { id: 'SS', nome: 'Superior',       valor: 9.5, min: 9 },
+  { id: 'MS', nome: 'Médio Superior', valor: 8,   min: 7 },
+  { id: 'MM', nome: 'Médio',          valor: 6,   min: 5 },
+  { id: 'MI', nome: 'Médio Inferior', valor: 4,   min: 3 },
+  { id: 'II', nome: 'Inferior',       valor: 1.5, min: 0.1 },
+  { id: 'SR', nome: 'Sem Rendimento', valor: 0,   min: 0 }
+];
+
 /** Sons de fundo do modo foco (gerados na hora, sem arquivos) */
 const SONS_FUNDO = [
   { id: '',       label: '🔇 Nenhum' },
@@ -103,6 +114,7 @@ const CONFIG_PADRAO = {
   relatorioSemanal: true, // mostra o relatório da semana na 1ª abertura da semana
   semestreInicio: '',    // 'AAAA-MM-DD' (opcional): progresso do semestre e limite de faltas
   semestreFim: '',
+  sistemaNotas: 'numero', // 'numero' (0 a 10) ou 'mencao' (SS, MS, MM, MI, II, SR)
   mediaAprovacao: 7,     // média padrão para passar (cada matéria pode ter a sua)
   metaFocoMin: 300,      // meta semanal de foco (minutos)
   metaTarefas: 10,       // meta semanal de tarefas concluídas

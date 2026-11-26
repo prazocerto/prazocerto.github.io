@@ -821,6 +821,7 @@ function iniciarPausar() {
     $('#timer-status').textContent = '⏸ Pausado. Respire e volte quando quiser.';
   } else {
     preparaSom();
+    if (timer.modo === 'foco') pedirPermissaoDoFoco();
     timer.fim = Date.now() + timer.restante;
     timer.rodando = true;
     timer.intervalo = setInterval(tique, 250);
@@ -899,7 +900,7 @@ function atualizarTimerUI() {
   const pilula = $('#timer-pill');
   pilula.hidden = !timer.rodando || estado.view === 'foco';
   $('#timer-pill-tempo').textContent = texto;
-  document.title = timer.rodando ? `${texto} · ${ROTULOS_MODO[timer.modo]} — PrazoCerto` : `${TITULOS[estado.view]} · PrazoCerto`;
+  document.title = timer.rodando ? `${saidaDoFoco ? '⏳ Volta pro foco! ' : ''}${texto} · ${ROTULOS_MODO[timer.modo]} — PrazoCerto` : `${TITULOS[estado.view]} · PrazoCerto`;
 }
 
 function montarSelectTarefaFoco() {
@@ -1211,6 +1212,8 @@ function abrirConfig() {
   $('#cfg-sem-inicio').value = c.semestreInicio;
   $('#cfg-sem-fim').value = c.semestreFim;
   $('#cfg-media').value = String(c.mediaAprovacao);
+  $('#cfg-sistema-notas').value = c.sistemaNotas;
+  atualizarCampoMedia();
   $('#cfg-meta-foco').value = String(c.metaFocoMin / 60);
   $('#cfg-meta-tarefas').value = String(c.metaTarefas);
   $('#cfg-estudo-inicio').value = c.estudoInicio;
@@ -1257,7 +1260,8 @@ function salvarConfig(e) {
   Store.salvarConfig({ nome: $('#cfg-nome').value.trim(), foco, curta, longa, ...somDoFormulario(), som: $('#cfg-som').checked,
     aviso: $('#cfg-aviso').checked, lembretesPadrao: lerChips('lembrete-padrao'), atalhos: $('#cfg-atalhos').checked,
     resumoDiario: $('#cfg-resumo').checked, estudoInicio, estudoFim,
-    relatorioSemanal: $('#cfg-relatorio').checked, semestreInicio, semestreFim, mediaAprovacao, metaFocoMin, metaTarefas });
+    relatorioSemanal: $('#cfg-relatorio').checked, semestreInicio, semestreFim, mediaAprovacao, metaFocoMin, metaTarefas,
+    sistemaNotas: $('#cfg-sistema-notas').value });
   if (!timer.rodando) timer.restante = duracaoModo(timer.modo);
   salvarTimer();
   toast('⚙️ Configurações salvas');
@@ -1443,12 +1447,12 @@ async function registroSW() {
 }
 
 /** Mostra a notificação do sistema. Devolve true se conseguiu. */
-async function mostrarNotificacao(titulo, corpo, tag, { tarefaId = null, insistente = false } = {}) {
+async function mostrarNotificacao(titulo, corpo, tag, { tarefaId = null, insistente = false, url = null } = {}) {
   if (!suportaNotificacao() || Notification.permission !== 'granted') return false;
   const opcoes = {
     body: corpo, tag, renotify: true, requireInteraction: insistente, lang: 'pt-BR',
     icon: urlApp('assets/icons/icon-192.png'), vibrate: [400, 150, 400, 150, 700],
-    data: { tarefaId, url: urlApp(tarefaId ? `./?abrir=${encodeURIComponent(tarefaId)}#tarefas` : './#hoje') }
+    data: { tarefaId, url: urlApp(url || (tarefaId ? `./?abrir=${encodeURIComponent(tarefaId)}#tarefas` : './#hoje')) }
   };
   const reg = await registroSW();
   if (reg && reg.showNotification) {
@@ -2094,6 +2098,12 @@ const fmtNum = (n, casas = 1) => n.toLocaleString('pt-BR', { maximumFractionDigi
 const hojeISO = () => dataISO(new Date());
 const diaParaData = iso => new Date(`${iso}T12:00`);
 
+function atualizarCampoMedia() {
+  const mencao = $('#cfg-sistema-notas').value === 'mencao';
+  $('#campo-media').hidden = mencao;
+  $('#dica-mencao').hidden = !mencao;
+}
+
 function abrirConfigEm(seletor) {
   $('#btn-config').click();
   setTimeout(() => { const el = $(seletor); if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); } }, 120);
@@ -2120,10 +2130,24 @@ function encontrosNoSemestre(idMateria) {
   return n;
 }
 
-/* ---------- 10.2 Notas ---------- */
+/* ---------- 10.2 Notas (número de 0 a 10 ou menções SS…SR) ---------- */
+const usaMencao = () => Store.getConfig().sistemaNotas === 'mencao';
+const MENCAO_MINIMA = 'MM';
+/** Número → menção, pela faixa (SS 9–10, MS 7–8,9, MM 5–6,9, MI 3–4,9, II 0,1–2,9, SR 0). */
+function mencaoDe(n) { return (MENCOES.find(m => n >= m.min - 1e-9 && (m.id !== 'SR' || n <= 0)) || MENCOES[MENCOES.length - 1]).id; }
+/** Menor menção que alcança a média de que a pessoa precisa nas avaliações que faltam. */
+function mencaoNecessaria(precisa) {
+  if (precisa > 10 + 1e-9) return null;
+  const crescente = [...MENCOES].reverse();
+  const m = crescente.find(x => x.valor >= precisa - 1e-9);
+  return m ? m.id : 'SS';
+}
+const nomeMencao = id => { const m = MENCOES.find(x => x.id === id); return m ? `${m.id} (${m.nome})` : id; };
+
 function infoNotas(idMateria) {
   const e = Store.getEstudo(idMateria);
-  const media = e.media ?? Store.getConfig().mediaAprovacao;
+  const minima = MENCOES.find(m => m.id === MENCAO_MINIMA).min;
+  const media = usaMencao() ? minima : e.media ?? Store.getConfig().mediaAprovacao;
   const avs = e.avaliacoes;
   if (!avs.length) return { vazio: true, media };
   const pesoTotal = avs.reduce((t, a) => t + a.peso, 0);
@@ -2144,9 +2168,22 @@ function infoNotas(idMateria) {
 }
 
 function textoNotas(i) {
-  if (i.vazio) return { titulo: 'Sem avaliações ainda', texto: 'Cadastre as provas e trabalhos com o peso de cada um para saber quanto precisa tirar.' };
+  if (i.vazio) return { titulo: 'Sem avaliações ainda', texto: `Cadastre as provas e trabalhos com o peso de cada um para saber ${usaMencao() ? 'qual menção' : 'quanto'} precisa tirar.` };
   const nomes = i.faltam.map(a => a.nome);
   const lista = nomes.length > 1 ? `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}` : nomes[0];
+  if (usaMencao()) {
+    const atual = i.mediaAtual === null ? '—' : mencaoDe(i.mediaAtual);
+    switch (i.situacao) {
+      case 'aprovado': return { titulo: `✅ Aprovado com ${mencaoDe(i.final)}`, texto: `Menção final estimada: ${nomeMencao(mencaoDe(i.final))}. Para passar precisava de MM ou melhor.` };
+      case 'reprovado': return { titulo: `❌ Menção final ${mencaoDe(i.final)}`, texto: 'Ficou abaixo de MM. Veja com o professor se há prova de recuperação.' };
+      case 'garantido': return { titulo: '🎉 Já está aprovado!', texto: `Mesmo com SR em ${lista}, a menção final fica em MM ou melhor.` };
+      case 'impossivel': return { titulo: '🚨 Nem com SS dá para chegar a MM', texto: `Só com ${lista} não alcança a menção mínima. Converse com o professor sobre recuperação ou trabalho extra.` };
+      default: {
+        const precisa = mencaoNecessaria(i.precisa);
+        return { titulo: `🎯 Precisa de ${precisa} ou melhor em ${lista}`, texto: `Menção atual: ${atual} · para passar: MM ou melhor.` };
+      }
+    }
+  }
   switch (i.situacao) {
     case 'aprovado': return { titulo: `✅ Aprovado com ${fmtNum(i.final)}`, texto: `Média final ${fmtNum(i.final)} (precisava de ${fmtNum(i.media)}).` };
     case 'reprovado': return { titulo: `❌ Média final ${fmtNum(i.final)}`, texto: `Ficou abaixo de ${fmtNum(i.media)}. Veja com o professor se há prova de recuperação.` };
@@ -2223,8 +2260,10 @@ function renderMaterias() {
   const cartasHoje = totalCartasHoje();
   const lista = Store.getMaterias().map(m => {
     const n = infoNotas(m.id), f = infoFaltas(m.id), c = cartasParaHoje(m.id).length;
-    const notaTxt = n.vazio ? '—' : n.situacao === 'aprovado' || n.situacao === 'reprovado' ? fmtNum(n.final) : n.situacao === 'garantido' ? '✓' : n.situacao === 'impossivel' ? '!' : fmtNum(n.precisa);
-    const notaSub = n.vazio ? 'sem notas' : n.situacao === 'precisa' ? 'precisa tirar' : n.situacao === 'garantido' ? 'já passou' : n.situacao === 'impossivel' ? 'recuperação' : 'média final';
+    const mencao = usaMencao();
+    const notaTxt = n.vazio ? '—' : n.situacao === 'aprovado' || n.situacao === 'reprovado' ? (mencao ? mencaoDe(n.final) : fmtNum(n.final))
+      : n.situacao === 'garantido' ? '✓' : n.situacao === 'impossivel' ? '!' : (mencao ? mencaoNecessaria(n.precisa) : fmtNum(n.precisa));
+    const notaSub = n.vazio ? 'sem notas' : n.situacao === 'precisa' ? 'precisa tirar' : n.situacao === 'garantido' ? 'já passou' : n.situacao === 'impossivel' ? 'recuperação' : mencao ? 'menção final' : 'média final';
     const dica = n.situacao === 'impossivel' ? '🚨 Nota em risco: veja a aba Notas.'
       : f.nivel === 'perigo' ? '🚫 Passou do limite de faltas.'
       : f.nivel === 'alerta' ? `⚠️ Só pode faltar mais ${f.restam} aula(s).`
@@ -2288,23 +2327,36 @@ function renderResultadoNotas() {
 function renderPainelNotas() {
   const e = Store.getEstudo(materiaAberta);
   const padrao = Store.getConfig().mediaAprovacao;
+  const mencao = usaMencao();
+  const campoNota = a => mencao
+    ? `<select class="select" data-av="${a.id}" data-campo="mencao" aria-label="Menção de ${esc(a.nome)}">
+        <option value="">—</option>${MENCOES.map(m => `<option value="${m.id}" ${a.nota !== null && mencaoDe(a.nota) === m.id ? 'selected' : ''}>${m.id}</option>`).join('')}</select>`
+    : `<input class="input" data-av="${a.id}" data-campo="nota" value="${a.nota === null ? '' : fmtNum(a.nota, 2)}" inputmode="decimal" placeholder="—" aria-label="Nota de ${esc(a.nome)}">`;
   $('#painel-notas').innerHTML = `
-    <div class="resultado-nota" id="resultado-nota" role="status" aria-live="polite"></div>
-    <div class="linha-media">
-      <label for="m-media" class="field__label" style="margin:0">Média para passar nesta matéria</label>
-      <input type="text" inputmode="decimal" id="m-media" class="input" value="${e.media ?? ''}" placeholder="${fmtNum(padrao)}" aria-describedby="m-media-dica">
-      <span class="field__hint" id="m-media-dica" style="margin:0">Em branco = padrão (${fmtNum(padrao)})</span>
+    <div class="seletor-sistema" role="group" aria-label="Sistema de notas">
+      <button type="button" data-acao-m="sistema" data-sistema="numero" aria-pressed="${!mencao}">🔢 Notas de 0 a 10</button>
+      <button type="button" data-acao-m="sistema" data-sistema="mencao" aria-pressed="${mencao}">🔤 Menções (SS, MS, MM…)</button>
     </div>
+    <div class="resultado-nota" id="resultado-nota" role="status" aria-live="polite"></div>
+    ${mencao
+      ? '<p class="field__hint" style="margin:0">Para passar: <b>MM</b> ou melhor e 75% de presença (Regimento do UniCEUB). Faixas: SS 9–10 · MS 7–8,9 · MM 5–6,9 · MI 3–4,9 · II 0,1–2,9 · SR 0.</p>'
+      : `<div class="linha-media">
+          <label for="m-media" class="field__label" style="margin:0">Média para passar nesta matéria</label>
+          <input type="text" inputmode="decimal" id="m-media" class="input" value="${e.media ?? ''}" placeholder="${fmtNum(padrao)}" aria-describedby="m-media-dica">
+          <span class="field__hint" id="m-media-dica" style="margin:0">Em branco = padrão (${fmtNum(padrao)})</span>
+        </div>`}
     ${e.avaliacoes.length ? `<table class="tabela-notas">
-      <thead><tr><th scope="col">Avaliação</th><th scope="col">Peso</th><th scope="col">Nota</th><th scope="col"><span class="sr-only">Remover</span></th></tr></thead>
+      <thead><tr><th scope="col">Avaliação</th><th scope="col">Peso</th><th scope="col">${mencao ? 'Menção' : 'Nota'}</th><th scope="col"><span class="sr-only">Remover</span></th></tr></thead>
       <tbody>${e.avaliacoes.map(a => `<tr>
         <td><input class="input" data-av="${a.id}" data-campo="nome" value="${esc(a.nome)}" maxlength="40" aria-label="Nome da avaliação"></td>
         <td><input class="input" data-av="${a.id}" data-campo="peso" value="${fmtNum(a.peso, 2)}" inputmode="decimal" aria-label="Peso de ${esc(a.nome)}"></td>
-        <td><input class="input" data-av="${a.id}" data-campo="nota" value="${a.nota === null ? '' : fmtNum(a.nota, 2)}" inputmode="decimal" placeholder="—" aria-label="Nota de ${esc(a.nome)}"></td>
+        <td>${campoNota(a)}</td>
         <td><button type="button" class="btn-icone" data-acao-m="rm-av" data-av="${a.id}" aria-label="Remover ${esc(a.nome)}">✕</button></td>
       </tr>`).join('')}</tbody></table>` : ''}
     <div class="botoes-linha"><button type="button" class="btn btn--ghost btn--sm" data-acao-m="add-av">＋ Adicionar avaliação</button></div>
-    <p class="field__hint" style="margin:0">Deixe a nota em branco nas avaliações que ainda não aconteceram. O peso pode ser 1, 2, 3… ou a porcentagem (30, 40…).</p>`;
+    <p class="field__hint" style="margin:0">${mencao
+      ? 'Deixe “—” nas avaliações que ainda não aconteceram. A menção final é uma estimativa: no UniCEUB o professor combina as menções pelo princípio da progressividade, então confira o plano de ensino.'
+      : 'Deixe a nota em branco nas avaliações que ainda não aconteceram. O peso pode ser 1, 2, 3… ou a porcentagem (30, 40…).'}</p>`;
   renderResultadoNotas();
 }
 
@@ -2377,6 +2429,12 @@ function registrarEventosMaterias() {
   // notas e limites: salvam enquanto digita
   dlg.addEventListener('input', e => {
     const el = e.target;
+    if (el.dataset.av && el.dataset.campo === 'mencao') {
+      const m = MENCOES.find(x => x.id === el.value);
+      Store.alterarEstudo(materiaAberta, est => { const a = est.avaliacoes.find(x => x.id === el.dataset.av); if (a) a.nota = m ? m.valor : null; });
+      renderResultadoNotas();
+      return;
+    }
     if (el.dataset.av) {
       const campo = el.dataset.campo;
       let valor = el.value;
@@ -2431,6 +2489,13 @@ function registrarEventosMaterias() {
         Store.alterarEstudo(id, est => { est.avaliacoes = est.avaliacoes.filter(a => a.id !== b.dataset.av); });
         renderPainelNotas();
         toast('Avaliação removida', { acao: 'Desfazer', aoClicar: () => { Store.alterarEstudo(id, est => { est.avaliacoes = antes; }); if (materiaAberta === id) renderPainelNotas(); atualizarTudo(); } });
+        break;
+      }
+      case 'sistema': {
+        Store.salvarConfig({ sistemaNotas: b.dataset.sistema });
+        renderPainelNotas();
+        $(`#painel-notas [data-sistema="${b.dataset.sistema}"]`).focus();
+        toast(b.dataset.sistema === 'mencao' ? '🔤 Agora as notas são por menção (SS, MS, MM, MI, II, SR)' : '🔢 Agora as notas são de 0 a 10');
         break;
       }
       case 'falta-hoje': registrarFalta(id, hojeISO()); break;
@@ -2763,29 +2828,71 @@ function atualizarSomFundo(previa = false) {
   pararFundo();
 }
 
-/* ---------- 10.11 Foco sem distração ---------- */
-let saidaDoFoco = null, avisoSaida = null, saidasDoCiclo = 0;
-function vigiarSaidaDoFoco() {
-  const focando = timer.rodando && timer.modo === 'foco' && Store.getConfig().focoRigido;
-  if (document.visibilityState === 'hidden') {
-    if (!focando) return;
-    saidaDoFoco = Date.now();
-    avisoSaida = setTimeout(() => {
-      const faltam = Math.max(1, Math.round((timer.fim - Date.now()) / 60000));
-      mostrarNotificacao('⏳ Volta pro foco!', `Faltam ${faltam} min. Você consegue! 💪`, 'foco-saida');
-    }, 15000);
-    return;
-  }
+/* ---------- 10.11 Foco sem distração ----------
+   Ao sair do app (outra aba, outro app no celular ou outra janela no computador)
+   durante o foco, o aviso sai NA HORA: no celular o código é congelado logo depois.
+   No computador, um segundo lembrete vem 20 s depois se a pessoa continuar fora. */
+let saidaDoFoco = null, avisoSaida = null, avisoBlur = null, saidasDoCiclo = 0;
+const focandoAgora = () => timer.rodando && timer.modo === 'foco' && Store.getConfig().focoRigido;
+const minutosRestantesFoco = () => Math.max(1, Math.round((timer.fim - Date.now()) / 60000));
+
+function notificarSaida(segunda = false) {
+  if (!saidaDoFoco || !focandoAgora()) return;
+  mostrarNotificacao(segunda ? '⏳ Ainda fora do foco…' : '🍅 Volta pro foco!', `Faltam ${minutosRestantesFoco()} min. Toque aqui para voltar. 💪`, 'foco-saida', { insistente: true, url: './#foco' });
+}
+function saiuDoFoco(imediato) {
+  if (!focandoAgora() || saidaDoFoco) return;
+  saidaDoFoco = Date.now();
+  atualizarTimerUI();
+  if (imediato) notificarSaida();
   clearTimeout(avisoSaida);
-  if (saidaDoFoco && focando) {
-    const fora = Date.now() - saidaDoFoco;
-    if (fora > 5000) {
-      saidasDoCiclo++;
-      const faltam = Math.max(0, Math.round((timer.fim - Date.now()) / 60000));
-      toast(`👀 Você ficou ${fora < 60000 ? `${Math.round(fora / 1000)} s` : `${Math.round(fora / 60000)} min`} fora do app. ${faltam ? `Faltam ${faltam} min de foco, bora!` : 'O foco já está acabando!'}`, { duracao: 6000 });
-    }
-  }
+  avisoSaida = setTimeout(() => notificarSaida(!imediato ? false : true), imediato ? 20000 : 4000);
+}
+async function voltouAoFoco() {
+  clearTimeout(avisoSaida); clearTimeout(avisoBlur);
+  if (!saidaDoFoco) return;
+  const fora = Date.now() - saidaDoFoco;
   saidaDoFoco = null;
+  atualizarTimerUI();
+  try { const reg = await registroSW(); if (reg) (await reg.getNotifications({ tag: 'foco-saida' })).forEach(n => n.close()); } catch (_) {}
+  if (!timer.rodando || timer.modo !== 'foco' || fora < 3000) return;
+  saidasDoCiclo++;
+  const faltam = Math.max(0, Math.round((timer.fim - Date.now()) / 60000));
+  toast(`👀 Você ficou ${fora < 60000 ? `${Math.round(fora / 1000)} s` : `${Math.round(fora / 60000)} min`} fora do foco. ${faltam ? `Faltam ${faltam} min, bora!` : 'O foco já está acabando!'}`, { duracao: 6000 });
+}
+function vigiarSaidaDoFoco() {
+  if (document.visibilityState === 'hidden') saiuDoFoco(true);
+  else voltouAoFoco();
+}
+// computador: trocar de janela não esconde a página, então também vale perder o foco da janela
+window.addEventListener('blur', () => {
+  if (!focandoAgora()) return;
+  clearTimeout(avisoBlur);
+  avisoBlur = setTimeout(() => { if (!document.hasFocus()) saiuDoFoco(false); }, 1500);
+});
+window.addEventListener('focus', () => { clearTimeout(avisoBlur); if (document.visibilityState === 'visible') voltouAoFoco(); });
+
+/** A primeira vez que a pessoa começa um foco, pede a permissão de notificação (precisa de um clique). */
+async function pedirPermissaoDoFoco() {
+  if (!Store.getConfig().focoRigido || !suportaNotificacao() || !viaLink() || Notification.permission !== 'default') return;
+  if (localStorage.getItem('prazocerto:pediu-notif-foco')) return;
+  localStorage.setItem('prazocerto:pediu-notif-foco', '1');
+  toast('🔔 Permita as notificações para o app te chamar de volta se você sair durante o foco.', { duracao: 6000 });
+  await pedirPermissao();
+  renderStatusFocoRigido();
+}
+function renderStatusFocoRigido() {
+  const el = $('#foco-rigido-status');
+  if (!el) return;
+  if (!$('#foco-rigido').checked) { el.innerHTML = ''; return; }
+  let html = '';
+  if (!viaLink()) html = 'O aviso para voltar só funciona pelo link do site (prazocerto.github.io).';
+  else if (ehIOS() && !suportaNotificacao()) html = 'No iPhone, instale o app na Tela de Início para receber o aviso.';
+  else if (!suportaNotificacao()) html = 'Este navegador não tem notificações: você verá só o aviso ao voltar.';
+  else if (Notification.permission === 'granted') html = '✅ Notificações liberadas: o aviso chega na hora em que você sair.';
+  else if (Notification.permission === 'denied') html = `🚫 As notificações estão bloqueadas. ${esc(passosDesbloquear())}`;
+  else html = '⚠️ Falta liberar as notificações. <button type="button" class="chip-btn" id="btn-permitir-foco">🔔 Permitir</button>';
+  el.innerHTML = html;
 }
 
 /* ---------- 10.12 Atalhos do ícone e textos vindos de outros apps ---------- */
@@ -3113,6 +3220,7 @@ function registrarEventos() {
   // Matérias, flashcards, relatório, foco e calendário
   registrarEventosMaterias();
   $('#input-ics').addEventListener('change', lerArquivoIcs);
+  $('#cfg-sistema-notas').addEventListener('change', atualizarCampoMedia);
   $('#btn-ics-importar').addEventListener('click', importarIcsSelecionados);
   $('#foco-som').addEventListener('change', e => { Store.salvarConfig({ somFundo: e.target.value }); atualizarSomFundo(true); });
   $('#foco-volume').addEventListener('input', e => {
@@ -3120,7 +3228,12 @@ function registrarEventos() {
     Store.salvarConfig({ volumeFundo: Number(e.target.value) });
     ajustarVolumeFundo();
   });
-  $('#foco-rigido').addEventListener('change', e => Store.salvarConfig({ focoRigido: e.target.checked }));
+  $('#foco-rigido').addEventListener('change', async e => {
+    Store.salvarConfig({ focoRigido: e.target.checked });
+    if (e.target.checked && suportaNotificacao() && viaLink() && Notification.permission === 'default') await pedirPermissao();
+    renderStatusFocoRigido();
+  });
+  document.addEventListener('click', async e => { if (e.target.id === 'btn-permitir-foco') { await pedirPermissao(); renderStatusFocoRigido(); } });
   document.addEventListener('visibilitychange', vigiarSaidaDoFoco);
 
   // Lembretes no formulário da tarefa
@@ -3284,6 +3397,7 @@ function iniciar() {
     $('#foco-volume').value = String(c.volumeFundo);
     $('#foco-volume-valor').textContent = `${c.volumeFundo}%`;
     $('#foco-rigido').checked = c.focoRigido;
+    renderStatusFocoRigido();
   });
 }
 

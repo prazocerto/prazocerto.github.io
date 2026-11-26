@@ -279,6 +279,7 @@
               </div>
               <p class="field__hint">O som toca enquanto o foco estiver rodando e para nas pausas.</p>
               <label class="switch"><input type="checkbox" id="foco-rigido"><span>🚫 Me chamar de volta se eu sair do app durante o foco</span></label>
+              <p class="field__hint" id="foco-rigido-status" aria-live="polite" style="margin:0"></p>
             </div>
           </details>
 
@@ -467,10 +468,18 @@
         </fieldset>
 
         <h3>Semestre e notas</h3>
-        <div class="campos-3">
+        <div class="campos-2">
           <div><label for="cfg-sem-inicio" class="field__label">Começo do semestre</label><input type="date" id="cfg-sem-inicio" class="input"></div>
           <div><label for="cfg-sem-fim" class="field__label">Fim do semestre</label><input type="date" id="cfg-sem-fim" class="input"></div>
-          <div><label for="cfg-media" class="field__label">Média para passar</label><input type="number" id="cfg-media" class="input" min="0" max="10" step="0.5" inputmode="decimal"></div>
+        </div>
+        <div class="campos-2">
+          <div><label for="cfg-sistema-notas" class="field__label">Sistema de notas</label>
+            <select id="cfg-sistema-notas" class="select">
+              <option value="numero">🔢 Notas de 0 a 10</option>
+              <option value="mencao">🔤 Menções: SS, MS, MM, MI, II, SR (UniCEUB, UnB…)</option>
+            </select></div>
+          <div id="campo-media"><label for="cfg-media" class="field__label">Média para passar</label><input type="number" id="cfg-media" class="input" min="0" max="10" step="0.5" inputmode="decimal"></div>
+          <p class="field__hint" id="dica-mencao" hidden style="align-self:end;margin:0">Com menções, passa quem tira <b>MM</b> ou melhor.</p>
         </div>
         <p class="field__hint" style="margin:0">Com as datas do semestre e o horário das aulas, o app calcula sozinho quantas faltas você ainda pode ter em cada matéria (mínimo de 75% de presença).</p>
 

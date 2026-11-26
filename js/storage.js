@@ -195,6 +195,7 @@ const Store = (() => {
     ['estudoInicio', 'estudoFim'].forEach(k => { if (k in limpo && !horaOk(limpo[k])) delete limpo[k]; });
     ['semestreInicio', 'semestreFim'].forEach(k => { if (k in limpo && limpo[k] !== '' && !diaOk(limpo[k])) delete limpo[k]; });
     if ('mediaAprovacao' in limpo && !numOk(limpo.mediaAprovacao, 0, 10)) delete limpo.mediaAprovacao;
+    if ('sistemaNotas' in limpo && !['numero', 'mencao'].includes(limpo.sistemaNotas)) delete limpo.sistemaNotas;
     if ('metaFocoMin' in limpo && !numOk(limpo.metaFocoMin, 0, 10000)) delete limpo.metaFocoMin;
     if ('metaTarefas' in limpo && !numOk(limpo.metaTarefas, 0, 500)) delete limpo.metaTarefas;
     if ('somFundo' in limpo && !SONS_FUNDO.some(x => x.id === limpo.somFundo)) delete limpo.somFundo;
@@ -328,7 +329,7 @@ const Store = (() => {
   /* ---------- Nuvem: foto dos dados e aplicação dos dados recebidos ---------- */
   // só as preferências que fazem sentido em todos os aparelhos (som e avisos ficam por aparelho)
   const CONFIG_NUVEM = ['nome', 'foco', 'curta', 'longa', 'lembretesPadrao', 'resumoDiario', 'estudoInicio', 'estudoFim', 'atalhos',
-    'relatorioSemanal', 'semestreInicio', 'semestreFim', 'mediaAprovacao', 'metaFocoMin', 'metaTarefas'];
+    'relatorioSemanal', 'semestreInicio', 'semestreFim', 'mediaAprovacao', 'sistemaNotas', 'metaFocoMin', 'metaTarefas'];
   function aoMudar(fn) { ouvintes.push(fn); }
   function instantaneo() {
     const c = getConfig();

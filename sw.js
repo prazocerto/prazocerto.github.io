@@ -8,7 +8,7 @@
  * - Clique numa notificação de lembrete: abre o app na tarefa.
  * Os dados do aluno continuam no LocalStorage; aqui ficam só os arquivos.
  * ========================================================= */
-const VERSAO = 'prazocerto-v7';
+const VERSAO = 'prazocerto-v8';
 const ARQUIVOS = [
   './',
   './index.html',
