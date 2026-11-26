@@ -6,6 +6,10 @@
  *  - TIPOS ............ tipos de atividade acadêmica
  *  - MATERIAS_PADRAO .. matérias iniciais (o usuário pode editar)
  *  - CORES_MATERIA .... paleta para novas matérias
+ *  - LEMBRETES ........ opções de lembrete por tarefa (na hora, 15 min, 30 min, 1 hora…)
+ *  - REPETICOES ....... tarefas que se repetem (diária, semanal, mensal…)
+ *  - DIAS_SEMANA ...... nomes dos dias (horário das aulas)
+ *  - TOQUES ........... toques do alarme
  *  - CONFIG_PADRAO .... configurações iniciais (Pomodoro, nome, som, aviso de prazo)
  *  - CONQUISTAS ....... medalhas da gamificação
  *  - FRASES ........... frases motivacionais da tela inicial
@@ -39,14 +43,53 @@ const MATERIAS_PADRAO = [
   { id: 'm-pessoal',    nome: 'Pessoal',               cor: '#64748b' }
 ];
 
+/** Lembretes possíveis de cada tarefa (minutos antes do prazo) */
+const LEMBRETES = [
+  { min: 0,    label: 'Na hora' },
+  { min: 15,   label: '15 min' },
+  { min: 30,   label: '30 min' },
+  { min: 60,   label: '1 hora' },
+  { min: 120,  label: '2 horas' },
+  { min: 1440, label: '1 dia' }
+];
+
+/** Tarefas que se repetem: ao concluir, a próxima é criada sozinha */
+const REPETICOES = [
+  { id: '',          label: 'Não repete',               curto: '' },
+  { id: 'diaria',    label: 'Todo dia',                 curto: 'Todo dia' },
+  { id: 'uteis',     label: 'Dias úteis (seg a sex)',   curto: 'Dias úteis' },
+  { id: 'semanal',   label: 'Toda semana',              curto: 'Semanal' },
+  { id: 'quinzenal', label: 'A cada 2 semanas',         curto: 'Quinzenal' },
+  { id: 'mensal',    label: 'Todo mês',                 curto: 'Mensal' }
+];
+
+const DIAS_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+
+/** Toques do alarme (gerados com Web Audio, sem arquivo de som) */
+const TOQUES = [
+  { id: 'sino',    label: '🔔 Sino' },
+  { id: 'digital', label: '⏰ Despertador digital' },
+  { id: 'suave',   label: '🎵 Melodia suave' },
+  { id: 'alarme',  label: '🚨 Alarme forte' },
+  { id: 'classico', label: '✨ Clássico (curto)' }
+];
+
 const CONFIG_PADRAO = {
   nome: '',
   foco: 25,   // minutos de foco (Pomodoro)
   curta: 5,   // pausa curta
   longa: 15,  // pausa longa (a cada 4 focos)
   som: true,
-  aviso: false,     // notificação do navegador antes do prazo
-  avisoMin: 60,     // antecedência do aviso, em minutos
+  toque: 'sino',    // qual toque usar
+  repetir: 3,       // quantas vezes o toque se repete (0 = até a pessoa parar)
+  volume: 80,       // 0 a 100
+  vibrar: true,     // vibra o celular junto com o som (Android)
+  aviso: false,     // notificação antes do prazo
+  avisoMin: 60,     // (versão antiga) antecedência única do aviso, em minutos
+  lembretesPadrao: [60], // lembretes que toda tarefa nova recebe
+  resumoDiario: true,    // mostra o resumo do dia na primeira abertura
+  estudoInicio: '08:00', // janela para sugerir horários livres de estudo
+  estudoFim: '23:00',
   atalhos: true     // atalhos de uma tecla (podem ser desligados — WCAG 2.1.4)
 };
 
@@ -104,7 +147,7 @@ function gerarExemplo() {
       subtarefas: sub('Montar HTML semântico', 'Estilizar com CSS', 'Programar o JavaScript', 'Escrever o relatório')
     }),
     tarefa('Prova de Banco de Dados', 'm-bd', 'prova', 'alta', em(5, 19, 10), { estimativa: 120, descricao: 'Normalização, SQL (JOIN, GROUP BY) e modelo ER.' }),
-    tarefa('Lista 4 de Cálculo', 'm-calculo', 'lista', 'media', em(0, 23, 59), { estimativa: 90 }),
+    tarefa('Lista 4 de Cálculo', 'm-calculo', 'lista', 'media', em(0, 23, 59), { estimativa: 90, repetir: 'semanal' }),
     tarefa('Ler capítulo 3 de Engenharia de Software', 'm-engsoft', 'leitura', 'baixa', em(1, 19, 0), { estimativa: 45 }),
     tarefa('Exercícios de recursão', 'm-algoritmos', 'lista', 'media', em(-1, 23, 59), { estimativa: 60 }),
     tarefa('Apresentação sobre metodologias ágeis', 'm-engsoft', 'apresentacao', 'media', em(9, 19, 10), {
@@ -127,5 +170,13 @@ function gerarExemplo() {
     sessao(-2, 7, 'm-interfaces', 'ex-10'), sessao(-1, 9, 'm-engsoft', 'ex-11'),
     sessao(-1, 20, 'm-interfaces', 'ex-1'), sessao(-1, 21, 'm-interfaces', 'ex-1')
   ];
-  return { tarefas, sessoes };
+  // horário das aulas (noite, de segunda a quinta)
+  const aula = (dia, materia, inicio, fim, local) => ({ id: `ax-${++n}`, dia, materia, inicio, fim, local });
+  const aulas = [
+    aula(1, 'm-bd', '19:10', '20:50', 'Sala 203'), aula(1, 'm-calculo', '21:00', '22:40', 'Sala 203'),
+    aula(2, 'm-interfaces', '19:10', '20:50', 'Lab 4'), aula(2, 'm-engsoft', '21:00', '22:40', 'Sala 110'),
+    aula(3, 'm-algoritmos', '19:10', '20:50', 'Lab 2'), aula(3, 'm-bd', '21:00', '22:40', 'Lab 2'),
+    aula(4, 'm-calculo', '19:10', '20:50', 'Sala 203'), aula(4, 'm-interfaces', '21:00', '22:40', 'Lab 4')
+  ];
+  return { tarefas, sessoes, aulas };
 }

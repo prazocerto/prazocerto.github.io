@@ -11,10 +11,12 @@
  *                    descricao, subtarefas[], concluida, concluidaEm, criadaEm, focoMin }]
  *   materias .... [{ id, nome, cor }]
  *   sessoes ..... [{ id, inicio, minutos, materia, tarefaId }]  (ciclos Pomodoro)
- *   config ...... { nome, foco, curta, longa, som }
+ *   config ...... { nome, foco, curta, longa, som, toque, repetir, volume, vibrar, aviso, lembretesPadrao, atalhos }
  *   timer ....... estado do Pomodoro (para continuar depois de recarregar)
  *   conquistas .. ids das conquistas já anunciadas + último nível
- *   avisos ...... { [idTarefa]: prazo } — prazos que já geraram notificação
+ *   aulas ....... [{ id, materia, dia (0=dom … 6=sáb), inicio 'HH:MM', fim 'HH:MM', local }]
+ *   resumo ...... 'AAAA-MM-DD' — último dia em que o resumo do dia apareceu
+ *   avisos ...... { ['idTarefa|minutos']: prazo } — lembretes que já foram avisados
  */
 
 const Store = (() => {
@@ -31,9 +33,15 @@ const Store = (() => {
     }
   }
 
+  /* Sincronização com a nuvem: quem quiser é avisado quando um dado sincronizado muda */
+  const SINCRONIZADAS = ['tarefas', 'materias', 'sessoes', 'aulas', 'conquistas', 'config'];
+  const ouvintes = [];
+  let silencio = false; // true enquanto aplica dados que vieram da nuvem (não reenviar)
+
   function gravar(chave, valor) {
     try {
       localStorage.setItem(PREFIX + chave, JSON.stringify(valor));
+      if (!silencio && SINCRONIZADAS.includes(chave)) ouvintes.forEach(fn => { try { fn(chave); } catch (_) { /* ouvinte com erro não atrapalha */ } });
       return true;
     } catch (erro) {
       console.warn('[PrazoCerto] Falha ao salvar', chave, erro);
@@ -50,12 +58,20 @@ const Store = (() => {
   /* ---------- Tarefas ---------- */
   /* Dados salvos por versões antigas ou estragados são descartados, para nunca travar o app */
   const ehObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+  const lembretesValidos = lista => [...new Set(lista.map(Number))].filter(m => LEMBRETES.some(l => l.min === m)).sort((a, b) => b - a);
   const dataOk = v => v === '' || v == null || !isNaN(new Date(v));
   function getTarefas() {
     const lista = ler('tarefas', []);
     return Array.isArray(lista)
       ? lista.filter(t => ehObj(t) && typeof t.id === 'string' && typeof t.titulo === 'string' && dataOk(t.prazo))
-        .map(t => ({ ...t, subtarefas: Array.isArray(t.subtarefas) ? t.subtarefas.filter(ehObj) : [] }))
+        .map(t => {
+          const limpa = { ...t, subtarefas: Array.isArray(t.subtarefas) ? t.subtarefas.filter(ehObj) : [] };
+          // lembretes: lista de minutos válidos; sem a lista, a tarefa usa os lembretes padrão
+          if (Array.isArray(t.lembretes)) limpa.lembretes = lembretesValidos(t.lembretes);
+          else delete limpa.lembretes;
+          if (!REPETICOES.some(r => r.id && r.id === t.repetir)) delete limpa.repetir;
+          return limpa;
+        })
       : [];
   }
   function salvarTarefas(lista) { return gravar('tarefas', lista); }
@@ -170,6 +186,14 @@ const Store = (() => {
     const c = ler('config', {});
     const limpo = {};
     if (ehObj(c)) Object.keys(CONFIG_PADRAO).forEach(k => { if (typeof c[k] === typeof CONFIG_PADRAO[k]) limpo[k] = c[k]; });
+    // lembretes padrão: versões antigas tinham só uma antecedência (avisoMin)
+    if (Array.isArray(limpo.lembretesPadrao)) limpo.lembretesPadrao = lembretesValidos(limpo.lembretesPadrao);
+    else { delete limpo.lembretesPadrao; if (typeof limpo.avisoMin === 'number') limpo.lembretesPadrao = lembretesValidos([limpo.avisoMin]); }
+    if (limpo.toque && !TOQUES.some(t => t.id === limpo.toque)) delete limpo.toque;
+    if ('repetir' in limpo && ![0, 1, 3, 5].includes(limpo.repetir)) delete limpo.repetir;
+    if ('volume' in limpo) limpo.volume = Math.min(100, Math.max(0, limpo.volume || 0));
+    ['estudoInicio', 'estudoFim'].forEach(k => { if (k in limpo && !horaOk(limpo[k])) delete limpo[k]; });
+    if (limpo.estudoInicio && limpo.estudoFim && limpo.estudoInicio >= limpo.estudoFim) { delete limpo.estudoInicio; delete limpo.estudoFim; }
     return { ...CONFIG_PADRAO, ...limpo };
   }
   function salvarConfig(parcial) { const c = { ...getConfig(), ...parcial }; gravar('config', c); return c; }
@@ -189,20 +213,56 @@ const Store = (() => {
   /* ---------- Avisos de prazo (notificações) ---------- */
   function getAvisos() { const a = ler('avisos', {}); return ehObj(a) ? a : {}; }
   /** Marca que o prazo desta tarefa já foi avisado (se o prazo mudar, avisa de novo). */
-  function marcarAvisado(idTarefa, prazo) { const a = getAvisos(); a[idTarefa] = prazo; gravar('avisos', a); }
+  function marcarAvisado(chave, prazo) { const a = getAvisos(); a[chave] = prazo; gravar('avisos', a); }
+  /** Esquece lembretes de tarefas que não existem mais (a lista não cresce para sempre). */
+  function limparAvisos() {
+    const ids = new Set(getTarefas().map(t => t.id));
+    const a = getAvisos();
+    const limpo = Object.fromEntries(Object.entries(a).filter(([k]) => ids.has(k.split('|')[0])));
+    if (Object.keys(limpo).length !== Object.keys(a).length) gravar('avisos', limpo);
+  }
 
   /* ---------- Dados de exemplo, backup e reset ---------- */
+  /* ---------- Horário das aulas ---------- */
+  const horaOk = v => typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
+  function getAulas() {
+    const lista = ler('aulas', []);
+    return Array.isArray(lista)
+      ? lista.filter(a => ehObj(a) && typeof a.id === 'string' && typeof a.materia === 'string' &&
+          Number.isInteger(a.dia) && a.dia >= 0 && a.dia <= 6 && horaOk(a.inicio) && horaOk(a.fim) && a.inicio < a.fim)
+        .map(a => ({ ...a, local: typeof a.local === 'string' ? a.local.slice(0, 30) : '' }))
+        .sort((a, b) => a.dia - b.dia || a.inicio.localeCompare(b.inicio))
+      : [];
+  }
+  function salvarAula(dados) {
+    const lista = getAulas();
+    if (dados.id) {
+      const i = lista.findIndex(a => a.id === dados.id);
+      if (i >= 0) { lista[i] = { ...lista[i], ...dados }; gravar('aulas', lista); return lista[i]; }
+    }
+    const nova = { ...dados, id: novoId('a') };
+    lista.push(nova);
+    gravar('aulas', lista);
+    return nova;
+  }
+  function removerAula(id) { gravar('aulas', getAulas().filter(a => a.id !== id)); }
+
+  /* ---------- Resumo do dia (data em que foi mostrado pela última vez) ---------- */
+  function getResumoVisto() { const v = ler('resumo', ''); return typeof v === 'string' ? v : ''; }
+  function marcarResumoVisto(dia) { gravar('resumo', dia); }
+
   function carregarExemplo() {
-    const { tarefas, sessoes } = gerarExemplo();
+    const { tarefas, sessoes, aulas } = gerarExemplo();
     salvarTarefas(tarefas);
     gravar('sessoes', sessoes);
+    gravar('aulas', aulas);
     salvarMaterias(MATERIAS_PADRAO);
   }
 
   function exportar() {
     return {
       app: 'PrazoCerto', versao: 1, exportadoEm: new Date().toISOString(),
-      tarefas: getTarefas(), materias: getMaterias(), sessoes: getSessoes(), config: getConfig()
+      tarefas: getTarefas(), materias: getMaterias(), sessoes: getSessoes(), aulas: getAulas(), config: getConfig()
     };
   }
 
@@ -210,21 +270,50 @@ const Store = (() => {
     if (!dados || dados.app !== 'PrazoCerto' || !Array.isArray(dados.tarefas)) throw new Error('Backup inválido');
     salvarTarefas(dados.tarefas);
     if (Array.isArray(dados.materias) && dados.materias.length) salvarMaterias(dados.materias);
+    if (Array.isArray(dados.aulas)) gravar('aulas', dados.aulas);
     if (Array.isArray(dados.sessoes)) gravar('sessoes', dados.sessoes);
     if (dados.config) salvarConfig(dados.config);
   }
 
   function apagarTudo() {
-    ['tarefas', 'materias', 'sessoes', 'config', 'timer', 'conquistas', 'avisos'].forEach(apagar);
+    ['tarefas', 'materias', 'sessoes', 'aulas', 'config', 'timer', 'conquistas', 'avisos', 'resumo'].forEach(apagar);
+  }
+
+  /* ---------- Nuvem: foto dos dados e aplicação dos dados recebidos ---------- */
+  // só as preferências que fazem sentido em todos os aparelhos (som e avisos ficam por aparelho)
+  const CONFIG_NUVEM = ['nome', 'foco', 'curta', 'longa', 'lembretesPadrao', 'resumoDiario', 'estudoInicio', 'estudoFim', 'atalhos'];
+  function aoMudar(fn) { ouvintes.push(fn); }
+  function instantaneo() {
+    const c = getConfig();
+    return {
+      tarefas: getTarefas(), materias: getMaterias(), sessoes: getSessoes(), aulas: getAulas(),
+      conquistas: getConquistas(), config: Object.fromEntries(CONFIG_NUVEM.map(k => [k, c[k]]))
+    };
+  }
+  function aplicarInstantaneo(d) {
+    if (!ehObj(d)) return;
+    silencio = true;
+    try {
+      ['tarefas', 'materias', 'sessoes', 'aulas'].forEach(k => { if (Array.isArray(d[k])) gravar(k, d[k]); });
+      if (ehObj(d.conquistas)) gravar('conquistas', d.conquistas);
+      if (ehObj(d.config)) {
+        const recebida = Object.fromEntries(CONFIG_NUVEM.filter(k => k in d.config).map(k => [k, d.config[k]]));
+        gravar('config', { ...getConfig(), ...recebida });
+      }
+    } finally {
+      silencio = false;
+    }
   }
 
   return {
+    aoMudar, instantaneo, aplicarInstantaneo,
     getTarefas, getTarefa, salvarTarefa, removerTarefa, restaurarTarefa, alternarConclusao,
     alternarSubtarefa, adicionarFoco, limparConcluidas,
     getMaterias, criarMateria, excluirMateria,
     getSessoes, adicionarSessao,
     getConfig, salvarConfig, getTema, salvarTema, getTimer, salvarTimer,
-    getConquistas, salvarConquistas, getAvisos, marcarAvisado,
+    getConquistas, salvarConquistas, getAvisos, marcarAvisado, limparAvisos,
+    getAulas, salvarAula, removerAula, getResumoVisto, marcarResumoVisto,
     carregarExemplo, exportar, importar, apagarTudo
   };
 })();

@@ -8,15 +8,15 @@
   <title>PrazoCerto — Gestão de Tempo para Estudantes</title>
 
   <!-- Prévia do link (WhatsApp, Instagram, Telegram, Discord, Facebook, X/Twitter, LinkedIn) -->
-  <link rel="canonical" href="https://joaofortesrabelo-ctrl.github.io/PrazoCerto/">
+  <link rel="canonical" href="https://prazocerto.github.io/">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="PrazoCerto">
   <meta property="og:locale" content="pt_BR">
-  <meta property="og:url" content="https://joaofortesrabelo-ctrl.github.io/PrazoCerto/">
+  <meta property="og:url" content="https://prazocerto.github.io/">
   <meta property="og:title" content="⏰ PrazoCerto — Organize seus prazos da faculdade">
   <meta property="og:description" content="Tarefas, prazos e agenda com cores de urgência, Pomodoro e conquistas. Grátis, instalável e funciona sem internet.">
-  <meta property="og:image" content="https://joaofortesrabelo-ctrl.github.io/PrazoCerto/assets/og-imagem.jpg">
-  <meta property="og:image:secure_url" content="https://joaofortesrabelo-ctrl.github.io/PrazoCerto/assets/og-imagem.jpg">
+  <meta property="og:image" content="https://prazocerto.github.io/assets/og-imagem.jpg">
+  <meta property="og:image:secure_url" content="https://prazocerto.github.io/assets/og-imagem.jpg">
   <meta property="og:image:type" content="image/jpeg">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
@@ -24,7 +24,7 @@
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="⏰ PrazoCerto — Organize seus prazos da faculdade">
   <meta name="twitter:description" content="Tarefas, prazos e agenda com cores de urgência, Pomodoro e conquistas. Grátis, instalável e funciona sem internet.">
-  <meta name="twitter:image" content="https://joaofortesrabelo-ctrl.github.io/PrazoCerto/assets/og-imagem.jpg">
+  <meta name="twitter:image" content="https://prazocerto.github.io/assets/og-imagem.jpg">
   <meta name="twitter:image:alt" content="Logo do PrazoCerto com o despertador e cartões de tarefas coloridos por urgência">
   <link rel="icon" href="assets/icons/favicon-32.png" type="image/png" sizes="32x32">
   <link rel="icon" href="assets/icons/icon-192.png" type="image/png" sizes="192x192">
@@ -101,6 +101,7 @@
           <p class="eyebrow" id="hoje-data"></p>
           <h1 id="titulo-hoje">Olá!</h1>
           <p class="sub" id="hoje-frase"></p>
+          <button type="button" class="chip-btn btn-resumo" data-acao="resumo">📋 Resumo do dia</button>
         </div>
         <button type="button" class="btn btn--primary btn--lg" data-acao="nova-tarefa">＋ Nova tarefa</button>
       </div>
@@ -127,6 +128,8 @@
       </div>
 
       <div class="kpis" id="hoje-kpis"></div>
+
+      <div class="hoje-extra" id="hoje-extra"></div>
 
       <div id="hoje-listas"></div>
     </section>
@@ -202,10 +205,23 @@
         <section class="card dia-painel" aria-labelledby="dia-titulo">
           <h2 id="dia-titulo">Dia</h2>
           <p class="sub" id="dia-resumo"></p>
+          <div id="dia-aulas"></div>
+          <div id="dia-livres"></div>
           <div id="dia-lista"></div>
           <button type="button" class="btn btn--ghost" id="btn-nova-no-dia">＋ Nova tarefa neste dia</button>
         </section>
       </div>
+
+      <section class="card aulas-card" aria-labelledby="titulo-aulas">
+        <div class="aulas-card__head">
+          <div>
+            <h2 id="titulo-aulas">🎓 Horário das aulas</h2>
+            <p class="sub">As aulas aparecem na agenda e o app sugere horários livres para estudar.</p>
+          </div>
+          <button type="button" class="btn btn--primary btn--sm" data-acao="nova-aula">＋ Adicionar aula</button>
+        </div>
+        <div id="aulas-semana"></div>
+      </section>
     </section>
 
     <!-- ================= FOCO (POMODORO) ================= -->
@@ -322,9 +338,39 @@
         </div>
       </div>
 
+      <div class="campos-2">
+        <div class="campo">
+          <label for="t-repetir" class="field__label">🔁 Repetir</label>
+          <select id="t-repetir" class="select" aria-describedby="repetir-dica"></select>
+          <p class="field__hint" id="repetir-dica">Ao concluir, a próxima é criada sozinha.</p>
+          <p class="erro" id="erro-repetir" role="alert" hidden></p>
+        </div>
+      </div>
+
+      <fieldset class="campo" id="t-lembretes-campo">
+        <legend class="field__label">🔔 Lembretes <span class="legenda-sub">(marque quantos quiser)</span></legend>
+        <div class="chips-check" id="t-lembretes"></div>
+        <p class="field__hint" id="t-lembretes-dica"></p>
+        <div class="calendario-add">
+          <span class="field__hint">Garantir o alarme mesmo com o celular bloqueado:</span>
+          <div class="botoes-linha">
+            <button type="button" class="chip-btn" id="btn-cal-google">📅 Google Agenda</button>
+            <button type="button" class="chip-btn" id="btn-cal-ics">📅 iPhone / outros calendários</button>
+          </div>
+        </div>
+      </fieldset>
+
       <div class="campo">
         <label for="t-descricao" class="field__label">Anotações</label>
         <textarea id="t-descricao" class="input" rows="2" maxlength="400" placeholder="Conteúdo, links, materiais…"></textarea>
+      </div>
+
+      <div class="modo-prova" id="t-modo-prova" hidden>
+        <div>
+          <strong>📚 Modo prova</strong>
+          <p class="field__hint" id="modo-prova-texto">Monte um plano de revisão dividido pelos dias até a prova. Cada dia vira uma etapa do checklist.</p>
+        </div>
+        <button type="button" class="btn btn--primary btn--sm" id="btn-plano-revisao">Criar plano de revisão</button>
       </div>
 
       <fieldset class="campo">
@@ -338,7 +384,10 @@
       </fieldset>
 
       <div class="modal__actions modal__actions--split">
-        <button type="button" class="btn btn--danger-ghost" id="btn-excluir-tarefa" hidden>🗑️ Excluir</button>
+        <div class="acoes-esq">
+          <button type="button" class="btn btn--danger-ghost" id="btn-excluir-tarefa" hidden>🗑️ Excluir</button>
+          <button type="button" class="btn btn--ghost" id="btn-compartilhar-tarefa">📤 Compartilhar</button>
+        </div>
         <div>
           <button type="button" class="btn btn--text" data-fechar>Cancelar</button>
           <button type="submit" class="btn btn--primary">Salvar tarefa</button>
@@ -347,12 +396,21 @@
     </form>
   </dialog>
 
+  <div class="alarme-tocando" id="alarme-tocando" role="alertdialog" aria-labelledby="alarme-texto" hidden>
+    <span class="alarme-tocando__icone" aria-hidden="true">🔔</span>
+    <span id="alarme-texto">Alarme tocando</span>
+    <button type="button" class="btn btn--primary btn--sm" id="btn-parar-alarme">🔕 Parar</button>
+  </div>
+
   <dialog class="modal" id="dlg-config" aria-labelledby="config-titulo">
     <div class="modal__body">
       <button type="button" class="modal__close" data-fechar aria-label="Fechar">✕</button>
       <h2 id="config-titulo">⚙️ Configurações</h2>
 
       <form id="form-config" class="config-sec">
+        <h3 id="titulo-conta">☁️ Conta e sincronização</h3>
+        <div class="conta-nuvem" id="conta-nuvem" aria-live="polite"></div>
+
         <h3>Você</h3>
         <label for="cfg-nome" class="field__label">Seu nome (para a saudação)</label>
         <input type="text" id="cfg-nome" class="input" maxlength="20" placeholder="Ex.: João">
@@ -363,21 +421,47 @@
           <div><label for="cfg-curta" class="field__label">Pausa curta</label><input type="number" id="cfg-curta" class="input" min="1" max="30"></div>
           <div><label for="cfg-longa" class="field__label">Pausa longa</label><input type="number" id="cfg-longa" class="input" min="5" max="60" step="5"></div>
         </div>
-        <label class="switch"><input type="checkbox" id="cfg-som"><span>🔔 Tocar som ao terminar um ciclo</span></label>
         <label class="switch"><input type="checkbox" id="cfg-atalhos" aria-describedby="atalhos-dica"><span>⌨️ Atalhos de teclado de uma tecla (N, T, 1–5, /, ?)</span></label>
         <p class="field__hint" id="atalhos-dica">Desligue se você usa leitor de tela ou comandos de voz e as teclas sozinhas atrapalham.</p>
 
-        <h3>Avisos de prazo</h3>
-        <label class="switch"><input type="checkbox" id="cfg-aviso" aria-describedby="aviso-status"><span>⏰ Notificar antes de um prazo vencer</span></label>
-        <div class="campo-aviso">
-          <label for="cfg-aviso-min" class="field__label">Avisar com antecedência de</label>
-          <select id="cfg-aviso-min" class="select">
-            <option value="15">15 minutos</option><option value="30">30 minutos</option>
-            <option value="60" selected>1 hora</option><option value="120">2 horas</option><option value="1440">1 dia</option>
-          </select>
+        <h3>Rotina</h3>
+        <label class="switch"><input type="checkbox" id="cfg-resumo"><span>📋 Mostrar o resumo do dia na primeira vez que eu abrir o app</span></label>
+        <div class="campos-2 campos-janela">
+          <div><label for="cfg-estudo-inicio" class="field__label">Estudo a partir de</label><input type="time" id="cfg-estudo-inicio" class="input"></div>
+          <div><label for="cfg-estudo-fim" class="field__label">até</label><input type="time" id="cfg-estudo-fim" class="input"></div>
         </div>
+        <p class="field__hint" style="margin:0">Usado para sugerir horários livres de estudo, sem contar as aulas.</p>
+
+        <h3>Som do alarme</h3>
+        <p class="field__hint" style="margin:0">Toca no fim de cada ciclo do Pomodoro e nos lembretes de prazo.</p>
+        <label class="switch"><input type="checkbox" id="cfg-som"><span>🔔 Tocar som</span></label>
+        <div class="campos-2 campos-som">
+          <div><label for="cfg-toque" class="field__label">Toque</label><select id="cfg-toque" class="select"></select></div>
+          <div><label for="cfg-repetir" class="field__label">Repetir</label>
+            <select id="cfg-repetir" class="select">
+              <option value="1">1 vez (curtinho)</option><option value="3">3 vezes</option><option value="5">5 vezes</option><option value="0">Até eu parar</option>
+            </select></div>
+        </div>
+        <div class="campo-volume">
+          <label for="cfg-volume" class="field__label">Volume: <output id="cfg-volume-valor" for="cfg-volume">80%</output></label>
+          <input type="range" id="cfg-volume" min="10" max="100" step="10">
+        </div>
+        <label class="switch"><input type="checkbox" id="cfg-vibrar"><span>📳 Vibrar junto (celular Android)</span></label>
+        <button type="button" class="btn btn--ghost btn--sm" id="btn-ouvir-toque">▶ Ouvir o toque</button>
+
+        <h3>Avisos de prazo</h3>
+        <label class="switch"><input type="checkbox" id="cfg-aviso" aria-describedby="aviso-status"><span>⏰ Avisar antes de um prazo vencer</span></label>
+        <fieldset class="campo campo-lembretes-padrao">
+          <legend class="field__label">Lembretes padrão das tarefas novas</legend>
+          <div class="chips-check" id="cfg-lembretes"></div>
+          <p class="field__hint">Em cada tarefa dá para mudar (ou desligar) os lembretes dela.</p>
+        </fieldset>
         <p class="aviso-status" id="aviso-status" aria-live="polite"></p>
-        <button type="button" class="btn btn--ghost btn--sm" id="btn-testar-aviso">🔔 Testar notificação</button>
+        <div class="botoes-linha">
+          <button type="button" class="btn btn--primary btn--sm" id="btn-permitir-aviso" hidden>🔔 Permitir notificações</button>
+          <button type="button" class="btn btn--ghost btn--sm" id="btn-testar-aviso">🔔 Testar notificação</button>
+          <button type="button" class="btn btn--ghost btn--sm" id="btn-cal-todas">📅 Exportar todos os prazos</button>
+        </div>
         <p class="erro" id="erro-config" role="alert" hidden></p>
         <button type="submit" class="btn btn--primary">Salvar configurações</button>
       </form>
@@ -406,6 +490,89 @@
     </div>
   </dialog>
 
+  <dialog class="modal" id="dlg-aula" aria-labelledby="aula-titulo">
+    <form class="modal__body" id="form-aula" novalidate>
+      <button type="button" class="modal__close" data-fechar aria-label="Fechar">✕</button>
+      <h2 id="aula-titulo">🎓 Nova aula</h2>
+      <input type="hidden" id="a-id">
+      <div class="campo">
+        <label for="a-materia" class="field__label">Matéria</label>
+        <select id="a-materia" class="select"></select>
+      </div>
+      <fieldset class="campo">
+        <legend class="field__label">Dia(s) da semana <span class="legenda-sub" id="a-dias-dica">(marque todos os dias que tem essa aula)</span></legend>
+        <div class="chips-check chips-dias" id="a-dias"></div>
+      </fieldset>
+      <div class="campos-3">
+        <div><label for="a-inicio" class="field__label">Começa</label><input type="time" id="a-inicio" class="input" value="19:10"></div>
+        <div><label for="a-fim" class="field__label">Termina</label><input type="time" id="a-fim" class="input" value="20:50"></div>
+        <div><label for="a-local" class="field__label">Sala</label><input type="text" id="a-local" class="input" maxlength="30" placeholder="Ex.: Lab 4"></div>
+      </div>
+      <p class="erro" id="erro-aula" role="alert" hidden></p>
+      <div class="modal__actions modal__actions--split">
+        <div class="acoes-esq"><button type="button" class="btn btn--danger-ghost" id="btn-excluir-aula" hidden>🗑️ Excluir</button></div>
+        <div>
+          <button type="button" class="btn btn--text" data-fechar>Cancelar</button>
+          <button type="submit" class="btn btn--primary">Salvar aula</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal modal--resumo" id="dlg-resumo" aria-labelledby="resumo-titulo">
+    <div class="modal__body">
+      <button type="button" class="modal__close" data-fechar aria-label="Fechar">✕</button>
+      <p class="eyebrow" id="resumo-data"></p>
+      <h2 id="resumo-titulo">☀️ Resumo do dia</h2>
+      <div id="resumo-conteudo"></div>
+      <label class="switch resumo-switch"><input type="checkbox" id="resumo-todo-dia"><span>Mostrar este resumo todo dia</span></label>
+      <div class="modal__actions"><button type="button" class="btn btn--primary" data-fechar>Bora! 💪</button></div>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="dlg-compartilhar" aria-labelledby="compartilhar-titulo">
+    <div class="modal__body">
+      <button type="button" class="modal__close" data-fechar aria-label="Fechar">✕</button>
+      <h2 id="compartilhar-titulo">📤 Compartilhar tarefa</h2>
+      <p class="modal__sub">Mande para o seu grupo: quem abrir o link vê a tarefa e adiciona no PrazoCerto dele com um toque (com prazo, etapas e anotações).</p>
+      <div class="compartilhar-previa" id="compartilhar-previa"></div>
+      <div class="botoes-linha compartilhar-botoes">
+        <a class="btn btn--whats" id="btn-whats" target="_blank" rel="noopener">💬 WhatsApp</a>
+        <button type="button" class="btn btn--ghost" id="btn-copiar-link">🔗 Copiar link</button>
+        <button type="button" class="btn btn--ghost" id="btn-mais-opcoes" hidden>📤 Mais opções</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="dlg-importar" aria-labelledby="importar-titulo">
+    <div class="modal__body">
+      <button type="button" class="modal__close" data-fechar aria-label="Fechar">✕</button>
+      <h2 id="importar-titulo">📥 Tarefa compartilhada</h2>
+      <p class="modal__sub" id="importar-sub"></p>
+      <div class="compartilhar-previa" id="importar-previa"></div>
+      <div class="modal__actions">
+        <button type="button" class="btn btn--text" data-fechar>Agora não</button>
+        <button type="button" class="btn btn--primary" id="btn-importar-tarefa">＋ Adicionar às minhas tarefas</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="dlg-nuvem" aria-labelledby="nuvem-titulo">
+    <div class="modal__body">
+      <h2 id="nuvem-titulo">☁️ Como juntar suas tarefas?</h2>
+      <p class="modal__sub">Este aparelho e a sua conta já têm tarefas diferentes. O que você quer fazer?</p>
+      <ul class="nuvem-comparar">
+        <li>📱 Neste aparelho: <strong id="nuvem-local"></strong></li>
+        <li>☁️ Na sua conta: <strong id="nuvem-remoto"></strong></li>
+      </ul>
+      <div class="nuvem-escolhas">
+        <button type="button" class="btn btn--primary" data-escolha="juntar">🤝 Juntar tudo (recomendado)<small>Nada se perde: fica com as tarefas dos dois.</small></button>
+        <button type="button" class="btn btn--ghost" data-escolha="nuvem">☁️ Usar só as da conta<small>As deste aparelho são trocadas pelas da nuvem.</small></button>
+        <button type="button" class="btn btn--ghost" data-escolha="aparelho">📱 Usar só as deste aparelho<small>As da nuvem são trocadas pelas daqui.</small></button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog class="modal" id="dlg-ajuda" aria-labelledby="ajuda-titulo">
     <div class="modal__body">
       <button type="button" class="modal__close" data-fechar aria-label="Fechar">✕</button>
@@ -416,7 +583,12 @@
         <li><strong>Marque ✓ quando terminar</strong> e ganhe XP. Errou? Use <em>Desfazer</em>.</li>
         <li><strong>Use o Foco</strong> (Pomodoro) para estudar em blocos de 25 minutos.</li>
         <li><strong>Acompanhe o Progresso:</strong> nível, sequência de dias e conquistas.</li>
-        <li><strong>Ative os avisos</strong> em ⚙️ Configurações: o navegador te avisa 1 hora antes de cada prazo (dá para mudar a antecedência).</li>
+        <li><strong>Tarefas que se repetem</strong> (🔁): ao concluir uma lista semanal, a próxima já aparece com o novo prazo.</li>
+        <li><strong>Cadastre suas aulas</strong> na Agenda: elas aparecem em cada dia e o app mostra os horários livres para estudar.</li>
+        <li><strong>Modo prova:</strong> numa tarefa do tipo Prova, toque em <em>Criar plano de revisão</em> e o app divide o estudo pelos dias que faltam.</li>
+        <li><strong>Entre com o Google</strong> em ⚙️ Configurações para ter as mesmas tarefas no celular e no computador (sincroniza na hora).</li>
+        <li><strong>Compartilhe</strong> uma tarefa (📤) com o grupo pelo WhatsApp: quem abrir o link adiciona no app dele.</li>
+        <li><strong>Ative os avisos</strong> em ⚙️ Configurações e escolha, em cada tarefa, quando ser lembrado (na hora, 15 min, 30 min, 1 hora…). Dá para escolher o toque, o volume e quantas vezes ele repete.</li>
       </ol>
       <h3 id="ajuda-instalar">Instalar como app</h3>
       <p class="modal__sub" style="margin-top:0">O PrazoCerto pode ser instalado e aberto como um app, com ícone próprio e <strong>funcionando sem internet</strong>. Suas tarefas continuam salvas no aparelho.</p>
@@ -458,5 +630,14 @@
   <script src="js/data.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/app.js"></script>
+  <script>
+    // Conta e sincronização: só pelo link do site (aberto direto do arquivo, o navegador bloqueia módulos)
+    if (location.protocol.startsWith('http')) {
+      const modulo = document.createElement('script');
+      modulo.type = 'module';
+      modulo.src = 'js/nuvem.js';
+      document.body.appendChild(modulo);
+    }
+  </script>
 </body>
 </html>

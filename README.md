@@ -1,6 +1,6 @@
 # ⏰ PrazoCerto — Gestão de Tempo para Estudantes
 
-🔗 **Acesse online:** [https://joaofortesrabelo-ctrl.github.io/PrazoCerto/](https://joaofortesrabelo-ctrl.github.io/PrazoCerto/)
+🔗 **Acesse online:** [https://prazocerto.github.io/](https://prazocerto.github.io/)
 
 **Tema 9 — Aplicativo de Gestão de Tempo:** agenda e lista de tarefas para estudantes, com cores para prioridade e prazos.
 
@@ -21,7 +21,7 @@ Não precisa instalar nada.
 
 O PrazoCerto é um **app instalável**: ganha ícone na tela inicial, abre em janela própria (sem a barra do navegador) e **funciona sem internet**.
 
-1. Abra o link do site: [https://joaofortesrabelo-ctrl.github.io/PrazoCerto/](https://joaofortesrabelo-ctrl.github.io/PrazoCerto/)
+1. Abra o link do site: [https://prazocerto.github.io/](https://prazocerto.github.io/)
 2. Instale:
    - **Computador (Chrome ou Edge):** botão **📲 Instalar app** no topo, ou o ícone de instalar na barra de endereço.
    - **Android (Chrome):** botão **📲 Instalar app**, ou menu ⋮ → **Instalar app** / **Adicionar à tela inicial**.
@@ -50,12 +50,14 @@ prazocerto/
 ├── index.html        → estrutura semântica (header, nav, main, section, form, fieldset, dialog, footer)
 ├── manifest.json     → dados do app instalável (nome, ícones, cores, atalhos)
 ├── sw.js             → service worker: guarda os arquivos para abrir sem internet
+├── firestore.rules   → regras de segurança do Firestore (cada um só vê os próprios dados)
 ├── css/
 │   └── style.css     → tema claro/escuro (variáveis CSS), componentes, animações, responsividade
 ├── js/
-│   ├── app.js        → regras de prazo, telas, Pomodoro, gamificação, eventos
 │   ├── data.js       → prioridades, tipos, matérias padrão, conquistas, dados de exemplo
-│   └── storage.js    → toda a leitura e gravação no LocalStorage
+│   ├── storage.js    → toda a leitura e gravação no LocalStorage
+│   ├── app.js        → regras de prazo, telas, Pomodoro, gamificação, eventos
+│   └── nuvem.js      → conta Google e sincronização (Firebase)
 └── assets/
     ├── images/
     ├── og-imagem.jpg → imagem da prévia do link (WhatsApp, Instagram…)
@@ -74,8 +76,18 @@ prazocerto/
 | 📅 **Agenda** | Calendário mensal com bolinhas coloridas por prioridade. Mostra as tarefas do dia escolhido e permite criar uma tarefa já com aquela data. Dá para navegar com as setas do teclado |
 | 🍅 **Foco** | Timer **Pomodoro** (25/5/15 min, configurável) com anel animado e som ao terminar. Pode ser ligado a uma tarefa e continua contando mesmo depois de recarregar a página |
 | 📊 **Progresso** | Gráfico dos últimos 7 dias, pendentes por prioridade (rosca), foco por matéria, pendentes por matéria, nível, pontualidade e **10 conquistas** |
-| ⚙️ **Configurações** | Nome, tempos do Pomodoro, som, **avisos de prazo**, **matérias com cor personalizada**, backup (baixar/restaurar JSON), dados de exemplo e apagar tudo |
-| ⏰ **Avisos de prazo** | **Notificação do navegador** antes de cada prazo (1 hora por padrão; também 15 min, 30 min, 2 h ou 1 dia). Cada prazo é avisado uma vez só, e se o prazo mudar, avisa de novo. Sem permissão do navegador, o aviso aparece dentro da página. Funciona enquanto o app estiver aberto em alguma aba |
+| ⚙️ **Configurações** | Nome, tempos do Pomodoro, **som do alarme** (toque, repetição, volume, vibração), **lembretes padrão**, **matérias com cor personalizada**, backup (baixar/restaurar JSON), dados de exemplo e apagar tudo |
+| 🔔 **Lembretes por tarefa** | Cada tarefa escolhe os seus lembretes: **na hora, 15 min, 30 min, 1 hora, 2 horas ou 1 dia antes** (quantos quiser, ou nenhum). O cartão mostra o sininho com os horários. Tarefas novas vêm com os lembretes padrão das Configurações |
+| ⏰ **Notificações** | Saem pelo *service worker* (`showNotification`), o jeito aceito no Android e no app instalado. Ficam na tela até a pessoa ver e, ao tocar, abrem a tarefa. O app explica como liberar quando o navegador bloqueia (computador, Android ou iPhone) |
+| 🎵 **Som do alarme** | 5 toques gerados com Web Audio (sino, despertador digital, melodia suave, alarme forte, clássico), repetição de 1, 3 ou 5 vezes ou **até a pessoa parar**, volume e vibração no Android. Vale para o Pomodoro e para os lembretes; a barra "🔕 Parar" fica por cima de tudo |
+| 📅 **Calendário do celular** | Na tarefa: **Google Agenda** ou arquivo **.ics** (iPhone, Outlook, Samsung) já com os alarmes escolhidos. Em Configurações: exportar todos os prazos de uma vez. Assim o alarme toca mesmo com o celular bloqueado e o app fechado |
+| 🔁 **Tarefas que se repetem** | Todo dia, dias úteis, toda semana, a cada 2 semanas ou todo mês. Ao concluir, a próxima é criada com o novo prazo (pulando datas que já passaram); *Desfazer* apaga a próxima. O cartão mostra a etiqueta 🔁 |
+| 🎓 **Horário das aulas** | Cadastro das aulas por dia da semana (vários dias de uma vez), com sala e aviso de conflito de horário. Aparecem na Agenda, na tela Hoje e no resumo do dia |
+| 🕒 **Horários livres** | Para cada dia, o app calcula os intervalos livres para estudar (sem as aulas, dentro da janela de estudo das Configurações) e sugere o que focar: a revisão da prova ou a tarefa mais urgente |
+| 📚 **Modo prova** | Numa tarefa do tipo Prova, *Criar plano de revisão* divide o estudo pelos dias que faltam (até 7 sessões: conteúdo, resumo, simulado e revisão leve na véspera). Cada sessão vira uma etapa com data, e a de hoje aparece na tela Hoje com **✓ Feito** |
+| 📋 **Resumo do dia** | Na primeira abertura do dia: atrasadas, aulas de hoje, o que vence hoje e amanhã, revisão de prova e a sequência de dias. Pode ser desligado e também aberto pelo botão 📋 |
+| 📤 **Compartilhar tarefa** | Gera um link com a tarefa (título, prazo, matéria, etapas e anotações) para mandar no WhatsApp do grupo. Quem abre vê a prévia e adiciona no PrazoCerto dele. Funciona sem servidor: a tarefa vai dentro do próprio link (JSON em base64), e tudo que vem do link é validado e escapado |
+| ☁️ **Conta e sincronização** | Login com Google (Firebase Authentication) e sincronização em tempo real entre celular e computador (Cloud Firestore). Sem internet, as mudanças ficam pendentes e sobem quando a conexão volta. Na primeira vez num aparelho que já tem tarefas, o app pergunta se junta, usa só as da conta ou só as do aparelho. Sem conta, tudo continua funcionando só no aparelho |
 | 🌙 **Tema** | Claro e escuro. Respeita o tema do sistema na primeira visita e fica salvo |
 
 ### 🎨 Cores de prioridade e prazo
@@ -161,6 +173,21 @@ Escreva tudo numa linha, por exemplo: `Lista de Cálculo amanhã 23:59 !alta #ca
 - **Celular (≤ 600px):** formulários em 1 coluna, calendário compacto, botões grandes para o toque.
 - **Instalado como app:** abre em tela cheia com ícone próprio, inclusive sem internet (veja "Instalar como app").
 
+### 🔔 Como os lembretes funcionam
+
+- A cada 30 segundos, e também num horário agendado para o minuto exato do próximo lembrete, o app confere as tarefas pendentes.
+- Cada lembrete é avisado **uma vez**: a chave `idDaTarefa|minutos` e o prazo ficam salvos em `prazocerto:avisos`. Se o prazo mudar, os lembretes voltam a valer.
+- Se vários lembretes venceram enquanto o app estava fechado, ele avisa uma vez só. Lembretes cujo horário já tinha passado quando a tarefa foi salva não disparam.
+- **Limite da web:** sem um servidor de notificações (push), o navegador só consegue avisar com o PrazoCerto aberto, mesmo que minimizado ou em outra aba. Com o celular bloqueado ou o app fechado, o alarme garantido é o do calendário do celular (botões 📅).
+
+### ☁️ Como a sincronização funciona
+
+- O **LocalStorage continua sendo a memória principal**: o app abre e funciona sem internet, com ou sem conta.
+- Ao entrar com o Google, o módulo `js/nuvem.js` baixa o Firebase (só nessa hora, pela CDN oficial) e guarda uma cópia dos dados no documento `usuarios/{uid}` do Firestore.
+- Cada mudança é enviada 1,5 s depois. Os outros aparelhos recebem na hora (`onSnapshot`) e a tela se atualiza sozinha.
+- Som, volume e avisos ficam por aparelho; tarefas, matérias, aulas, sessões de foco, conquistas e preferências gerais sincronizam.
+- **Segurança:** as regras em `firestore.rules` só deixam cada pessoa ler e gravar o próprio documento. A `apiKey` do Firebase não é secreta: ela só identifica o projeto, e quem protege os dados são as regras.
+
 ## 💾 Chaves no LocalStorage
 
-`prazocerto:tarefas` · `prazocerto:materias` · `prazocerto:sessoes` · `prazocerto:config` · `prazocerto:tema` · `prazocerto:timer` · `prazocerto:conquistas` · `prazocerto:avisos`
+`prazocerto:tarefas` · `prazocerto:materias` · `prazocerto:sessoes` · `prazocerto:aulas` · `prazocerto:resumo` · `prazocerto:nuvem` · `prazocerto:aparelho` · `prazocerto:config` · `prazocerto:tema` · `prazocerto:timer` · `prazocerto:conquistas` · `prazocerto:avisos`

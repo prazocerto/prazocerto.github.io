@@ -183,6 +183,13 @@ function verificarConquistas({ silencioso = false } = {}) {
    ================================================================ */
 
 /** HTML de uma tarefa. opcoes.mostrarSubs exibe o checklist clicável. */
+/* Lido uma vez por renderização (evita ler o LocalStorage em cada cartão) */
+let cacheAvisos = { em: 0, valor: false };
+function avisosLigados() {
+  if (Date.now() - cacheAvisos.em > 500) cacheAvisos = { em: Date.now(), valor: Store.getConfig().aviso };
+  return cacheAvisos.valor;
+}
+
 function tarefaHTML(t, { indice = 0, mostrarSubs = false } = {}) {
   const p = infoPrazo(t);
   const prio = infoPrioridade(t.prioridade);
@@ -190,6 +197,7 @@ function tarefaHTML(t, { indice = 0, mostrarSubs = false } = {}) {
   const mat = infoMateria(t.materia);
   const subs = t.subtarefas || [];
   const feitas = subs.filter(s => s.feita).length;
+  const lembr = !t.concluida && t.prazo && avisosLigados() ? lembretesDe(t) : [];
 
   return `
     <li class="tarefa prio-${t.prioridade} urg-${t.concluida ? 'ok' : p.urgencia} ${t.concluida ? 'is-done' : ''}" style="--i:${Math.min(indice, 12)}" data-tarefa="${t.id}">
@@ -200,6 +208,7 @@ function tarefaHTML(t, { indice = 0, mostrarSubs = false } = {}) {
           <span class="materia-tag" style="--cor:${mat.cor}">${esc(mat.nome)}</span>
           <span class="tipo">${tipo.emoji} ${esc(tipo.label)}</span>
           <span class="prio" style="--c:${prio.cor}">${prio.label}</span>
+          ${t.repetir ? `<span class="repete-tag" title="Repete: ${esc(infoRepeticao(t.repetir).label)}">🔁 ${esc(infoRepeticao(t.repetir).curto)}</span>` : ''}
         </div>
         <h3><button type="button" class="tarefa__titulo" data-acao="editar" data-id="${t.id}">${esc(t.titulo)}</button></h3>
         <div class="tarefa__meta">
@@ -207,6 +216,7 @@ function tarefaHTML(t, { indice = 0, mostrarSubs = false } = {}) {
           <span>⏱ ${formatarMin(t.estimativa || 60)}</span>
           ${t.focoMin ? `<span>🍅 ${formatarMin(t.focoMin)} de foco</span>` : ''}
           ${subs.length ? `<span>☑️ ${feitas}/${subs.length} etapas</span>` : ''}
+          ${lembr.length ? `<span class="lembrete-tag" title="Lembretes: ${listaLembretes(lembr)}">🔔 ${lembr.map(m => ROTULO_CURTO[m]).join(' · ')}</span>` : ''}
         </div>
         ${subs.length && !mostrarSubs ? `<div class="progresso-sub" role="progressbar" aria-label="Etapas concluídas" aria-valuenow="${feitas}" aria-valuemin="0" aria-valuemax="${subs.length}"><span style="width:${(feitas / subs.length) * 100}%"></span></div>` : ''}
         ${subs.length && mostrarSubs ? `<ul class="subs-inline">${subs.map(s => `
@@ -272,6 +282,7 @@ function abrirModal(id) {
   if (dlg.open) return;
   if (!$('dialog[open]')) estado.ultimoFoco = document.activeElement; // lembra quem abriu o primeiro modal
   dlg.showModal();
+  if (alarme.ativo) posicionarBarraAlarme();
 }
 const fecharModal = dlg => { if (dlg && dlg.open) dlg.close(); };
 
@@ -302,6 +313,11 @@ function montarCamposFixos() {
   $('#t-tipo').innerHTML = TIPOS.map(t => `<option value="${t.id}">${t.emoji} ${esc(t.label)}</option>`).join('');
   $('#t-prioridades').innerHTML = PRIORIDADES.map(p => `
     <label class="prio-opt" style="--c:${p.cor}"><input type="radio" name="prioridade" value="${p.id}"><span>${p.emoji} ${p.label}</span></label>`).join('');
+  $('#t-lembretes').innerHTML = chipsLembrete('lembrete');
+  $('#t-repetir').innerHTML = REPETICOES.map(r => `<option value="${r.id}">${r.id ? '🔁 ' : ''}${r.label}</option>`).join('');
+  $('#a-dias').innerHTML = ORDEM_SEMANA.map(d => `<label class="chip-check"><input type="checkbox" name="aula-dia" value="${d}"><span>${DIAS_SEMANA[d].slice(0, 3)}</span></label>`).join('');
+  $('#cfg-lembretes').innerHTML = chipsLembrete('lembrete-padrao');
+  $('#cfg-toque').innerHTML = TOQUES.map(t => `<option value="${t.id}">${t.label}</option>`).join('');
   $('#filtro-prioridade').insertAdjacentHTML('beforeend', PRIORIDADES.map(p => `<option value="${p.id}">${p.emoji} ${p.label}</option>`).join(''));
 }
 
@@ -314,6 +330,7 @@ function montarSelectMaterias() {
   filtro.innerHTML = `<option value="">Todas as matérias</option>${opcoes}`;
   filtro.value = materias.some(m => m.id === atual) ? atual : '';
   $('#t-materia').innerHTML = opcoes;
+  $('#a-materia').innerHTML = opcoes;
 }
 
 /** Abre o modal de tarefa. dados = tarefa existente (editar) ou valores iniciais (nova). */
@@ -328,8 +345,13 @@ function abrirFormTarefa(dados = {}) {
   $('#t-prazo').value = dados.prazo ?? paraInput(prazoPadrao(1));
   $('#t-estimativa').value = String(dados.estimativa || 60);
   $('#t-descricao').value = dados.descricao || '';
+  marcarChips('lembrete', lembretesDe(dados));
+  atualizarDicaLembretes();
+  $('#t-repetir').value = dados.repetir || '';
+  $('#erro-repetir').hidden = true;
   estado.subtarefasEdicao = (dados.subtarefas || []).map(s => ({ ...s }));
   renderSubtarefasEdicao();
+  atualizarModoProva();
   $('#btn-excluir-tarefa').hidden = !editando;
   mostrarErroTitulo('');
   abrirModal('dlg-tarefa');
@@ -375,6 +397,15 @@ async function salvarFormTarefa(evento) {
   }
   mostrarErroTitulo('');
   const prazo = $('#t-prazo').value;
+  const repetir = $('#t-repetir').value;
+  if (repetir && !prazo) {
+    const erroR = $('#erro-repetir');
+    erroR.textContent = 'Para repetir, a tarefa precisa de um prazo (é dele que sai a próxima data).';
+    erroR.hidden = false;
+    $('#t-prazo').focus();
+    return;
+  }
+  $('#erro-repetir').hidden = true;
   // Prevenção de erro: avisa se o prazo de uma tarefa nova já passou
   if (!id && prazo && new Date(prazo) < new Date()) {
     const ok = await confirmar('Esse prazo já passou', 'A data escolhida é no passado e a tarefa já vai aparecer como atrasada. Salvar mesmo assim?', 'Salvar assim');
@@ -388,10 +419,12 @@ async function salvarFormTarefa(evento) {
     prioridade: $('input[name="prioridade"]:checked')?.value || 'media',
     estimativa: Number($('#t-estimativa').value),
     descricao: $('#t-descricao').value.trim(),
-    subtarefas: estado.subtarefasEdicao
+    subtarefas: estado.subtarefasEdicao,
+    lembretes: lerChips('lembrete'),
+    repetir
   };
   if (id) dados.id = id;
-  Store.salvarTarefa(dados);
+  pularLembretesPassados(Store.salvarTarefa(dados));
   fecharModal($('#dlg-tarefa'));
   toast(id ? '✏️ Tarefa atualizada' : `✅ “${titulo}” adicionada`);
   atualizarTudo();
@@ -403,7 +436,9 @@ function concluir(id, botao) {
   if (t.concluida) {
     const p = infoPrazo({ ...t, concluida: false, prazo: t.prazo }, new Date(t.concluidaEm));
     const bonus = 10 + (p.urgencia !== 'atrasada' ? 5 : 0) + (t.prioridade === 'alta' ? 5 : 0);
-    toast(`🎉 Concluída! +${bonus} XP`, { acao: 'Desfazer', aoClicar: () => { Store.alternarConclusao(id); atualizarTudo(); } });
+    const proxima = criarProximaRepeticao(t);
+    toast(`🎉 Concluída! +${bonus} XP${proxima ? ` · 🔁 Próxima: ${dataCurta(new Date(proxima.prazo))}` : ''}`,
+      { acao: 'Desfazer', aoClicar: () => { Store.alternarConclusao(id); desfazerRepeticao(id); atualizarTudo(); } });
     const item = botao && botao.closest('.tarefa');
     if (item && $('#filtro-status').value === 'pendentes' && estado.view === 'tarefas') {
       botao.setAttribute('aria-pressed', 'true');
@@ -412,6 +447,7 @@ function concluir(id, botao) {
       return;
     }
   } else {
+    desfazerRepeticao(id);
     toast('Tarefa voltou para pendentes');
   }
   atualizarTudo();
@@ -505,6 +541,7 @@ function adicionarRapida(evento) {
     titulo: r.titulo, prazo: r.prazo, prioridade: r.prioridade,
     materia: r.materia || Store.getMaterias()[0].id, tipo: 'outro', estimativa: 60
   });
+  pularLembretesPassados(t);
   campo.value = '';
   const p = infoPrazo(t);
   toast(`⚡ “${t.titulo}” · ${p.texto.replace(/^⏰ /, '')}`, { acao: 'Editar', aoClicar: () => abrirFormTarefa(Store.getTarefa(t.id)) });
@@ -555,6 +592,8 @@ function renderHoje() {
     <a class="card kpi" href="#tarefas"><span class="kpi__valor">${paraHoje}</span><span class="kpi__label">📌 Vencem hoje</span></a>
     <a class="card kpi" href="#progresso"><span class="kpi__valor">${feitasHoje}</span><span class="kpi__label">✅ Concluídas hoje</span></a>
     <a class="card kpi" href="#foco"><span class="kpi__valor">${focoHoje ? formatarMin(focoHoje) : '0'}</span><span class="kpi__label">🍅 Foco hoje</span></a>`;
+
+  renderHojeExtra();
 
   // Listas: atrasadas, hoje/amanhã e próximos dias (até 7 dias)
   if (!tarefas.length) {
@@ -698,6 +737,7 @@ function renderAgenda() {
   const ultimaSemanaFora = somarDias(inicio, 35).getMonth() !== mes.getMonth();
   $('#calendario-dias').innerHTML = celulas.slice(0, ultimaSemanaFora ? 35 : 42).join('');
   renderPainelDia(porDia);
+  renderAulasSemana();
 }
 
 /** Texto lido pelo leitor de tela em cada dia: data, quantas entregas, quantas altas e se há atraso (a cor não fica sozinha). */
@@ -725,6 +765,7 @@ function renderPainelDia(porDia) {
     ? `${lista.length} entrega(s)${minutos ? ` · cerca de ${formatarMin(minutos)} de trabalho pendente` : ''}`
     : 'Nenhuma entrega neste dia.';
   $('#dia-lista').innerHTML = lista.length ? `<ul class="lista">${lista.map((t, i) => tarefaHTML(t, { indice: i })).join('')}</ul>` : '';
+  renderAulasELivresDoDia(d);
 }
 
 /* ---------------- 7.4 FOCO (POMODORO) ---------------- */
@@ -752,12 +793,14 @@ function iniciarPausar() {
     timer.restante = Math.max(0, timer.fim - Date.now());
     timer.rodando = false;
     clearInterval(timer.intervalo);
+    clearTimeout(timeoutFimCiclo);
     $('#timer-status').textContent = '⏸ Pausado. Respire e volte quando quiser.';
   } else {
     preparaSom();
     timer.fim = Date.now() + timer.restante;
     timer.rodando = true;
     timer.intervalo = setInterval(tique, 250);
+    agendarFimCiclo();
     $('#timer-status').textContent = timer.modo === 'foco' ? '🔕 Silencie o celular e foque só nisso.' : '☕ Levante, beba água, alongue-se.';
   }
   salvarTimer();
@@ -767,6 +810,7 @@ function iniciarPausar() {
 function reiniciarTimer() {
   timer.rodando = false;
   clearInterval(timer.intervalo);
+  clearTimeout(timeoutFimCiclo);
   timer.restante = duracaoModo(timer.modo);
   $('#timer-status').textContent = '↺ Timer reiniciado.';
   salvarTimer();
@@ -782,6 +826,7 @@ function tique() {
 /** Fim de um ciclo: registra a sessão de foco e prepara a próxima etapa. */
 function terminarCiclo({ pulou = false } = {}) {
   clearInterval(timer.intervalo);
+  clearTimeout(timeoutFimCiclo);
   timer.rodando = false;
   const eraFoco = timer.modo === 'foco';
   if (eraFoco && !pulou) {
@@ -790,11 +835,13 @@ function terminarCiclo({ pulou = false } = {}) {
     Store.adicionarSessao({ inicio: new Date(timer.fim - minutos * 60000).toISOString(), minutos, materia: tarefa ? tarefa.materia : null, tarefaId: tarefa ? tarefa.id : null });
     if (tarefa) Store.adicionarFoco(tarefa.id, minutos);
     timer.ciclos++;
-    tocarSom();
+    tocarAlarme('🍅 Ciclo concluído! Hora da pausa.');
+    if (document.visibilityState !== 'visible') mostrarNotificacao('🍅 Ciclo concluído! +5 XP', 'Hora da pausa: levante, beba água e alongue-se.', 'pomodoro');
     toast(`🍅 Ciclo concluído! +5 XP. Hora da pausa.`);
     verificarConquistas();
   } else if (!pulou) {
-    tocarSom();
+    tocarAlarme('⏰ Pausa encerrada. Bora focar de novo?');
+    if (document.visibilityState !== 'visible') mostrarNotificacao('⏰ Pausa encerrada', 'Bora focar de novo?', 'pomodoro');
     toast('⏰ Pausa encerrada. Bora focar de novo?');
   }
   const proximo = eraFoco ? (timer.ciclos > 0 && timer.ciclos % 4 === 0 ? 'longa' : 'curta') : 'foco';
@@ -864,23 +911,134 @@ function focarEm(id) {
   $('#timer-status').textContent = t ? `🎯 Foco em: ${t.titulo}` : '';
 }
 
-/* Som de fim de ciclo (Web Audio, sem arquivo externo) */
+/* ================================================================
+   SOM DO ALARME (Web Audio, sem arquivo externo)
+   ----------------------------------------------------------------
+   Cada toque é uma "rodada" de notas geradas na hora. O alarme repete
+   a rodada 1, 3 ou 5 vezes, ou até a pessoa apertar "Parar" (com limite
+   de 2 minutos). Pode vibrar junto no Android (navigator.vibrate).
+   O navegador só libera o som depois de um toque/clique na página,
+   por isso preparaSom() roda em toda interação.
+   ================================================================ */
 let audioCtx = null;
+const alarme = { ativo: false, saida: null, proxima: null };
+
 function preparaSom() {
-  try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === 'suspended') audioCtx.resume(); } catch (_) { audioCtx = null; }
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  } catch (_) { audioCtx = null; }
 }
-function tocarSom() {
-  if (!Store.getConfig().som || !audioCtx) return;
-  [0, .22, .44].forEach((atraso, i) => {
-    const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
-    osc.frequency.value = [660, 880, 990][i];
-    gain.gain.setValueAtTime(.0001, audioCtx.currentTime + atraso);
-    gain.gain.exponentialRampToValueAtTime(.25, audioCtx.currentTime + atraso + .02);
-    gain.gain.exponentialRampToValueAtTime(.0001, audioCtx.currentTime + atraso + .2);
-    osc.connect(gain).connect(audioCtx.destination);
-    osc.start(audioCtx.currentTime + atraso);
-    osc.stop(audioCtx.currentTime + atraso + .22);
-  });
+
+/** Uma nota com ataque rápido e queda suave. */
+function nota(saida, freq, inicio, duracao, { tipo = 'sine', volume = .3, ataque = .008 } = {}) {
+  const osc = audioCtx.createOscillator(), env = audioCtx.createGain();
+  osc.type = tipo;
+  osc.frequency.value = freq;
+  env.gain.setValueAtTime(.0001, inicio);
+  env.gain.exponentialRampToValueAtTime(volume, inicio + ataque);
+  env.gain.exponentialRampToValueAtTime(.0001, inicio + duracao);
+  osc.connect(env).connect(saida);
+  osc.start(inicio);
+  osc.stop(inicio + duracao + .05);
+}
+
+/** Toca uma rodada do toque escolhido. Devolve a duração em segundos. */
+function tocarRodada(toque, saida) {
+  const t0 = audioCtx.currentTime + .03;
+  switch (toque) {
+    case 'digital': // bip-bip-bip-bip de despertador
+      for (let g = 0; g < 2; g++) for (let i = 0; i < 4; i++) nota(saida, 1760, t0 + g * .6 + i * .11, .08, { tipo: 'square', volume: .09, ataque: .004 });
+      return 1.1;
+    case 'suave': // arpejo tipo marimba
+      [523.25, 659.25, 783.99, 1046.5, 783.99, 1046.5].forEach((f, i) => nota(saida, f, t0 + i * .17, .7, { tipo: 'triangle', volume: .32 }));
+      return 1.6;
+    case 'alarme': // sirene alternada, insistente
+      for (let i = 0; i < 8; i++) nota(saida, i % 2 ? 660 : 880, t0 + i * .2, .19, { tipo: 'sawtooth', volume: .12, ataque: .01 });
+      return 1.6;
+    case 'classico': // o toque curto das versões antigas
+      [660, 880, 990].forEach((f, i) => nota(saida, f, t0 + i * .22, .2, { volume: .25, ataque: .02 }));
+      return .7;
+    case 'sino':
+    default: // duas batidas de sino (fundamental + harmônicos)
+      [0, .6].forEach(atraso => {
+        [[880, .3], [1760, .12], [2640, .06], [3960, .03]].forEach(([f, v]) => nota(saida, f, t0 + atraso, 1.5, { volume: v, ataque: .004 }));
+      });
+      return 2.1;
+  }
+}
+
+/**
+ * Toca o alarme. texto aparece na barra com o botão "Parar" quando o toque repete.
+ * som = configurações de som (por padrão, as salvas); dá para forçar só 1 rodada.
+ */
+function tocarAlarme(texto, { som = Store.getConfig(), umaVez = false } = {}) {
+  pararAlarme();
+  const vezes = umaVez ? 1 : som.repetir === 0 ? Infinity : som.repetir || 1;
+  const vibrar = () => { if (som.vibrar && navigator.vibrate) { try { navigator.vibrate([400, 150, 400, 150, 700]); } catch (_) {} } };
+  if (!som.som) { vibrar(); return; }
+  preparaSom();
+  if (!audioCtx) { vibrar(); return; }
+  const saida = audioCtx.createGain();
+  saida.gain.value = Math.max(.05, (som.volume ?? 80) / 100);
+  saida.connect(audioCtx.destination);
+  Object.assign(alarme, { ativo: true, saida });
+  const limite = Date.now() + 120000; // "até eu parar" toca no máximo 2 minutos
+  let rodadas = 0;
+  const rodada = () => {
+    if (!alarme.ativo || alarme.saida !== saida) return;
+    if (rodadas >= vezes || Date.now() > limite) { pararAlarme(); return; }
+    rodadas++;
+    const dur = tocarRodada(som.toque, saida);
+    vibrar();
+    alarme.proxima = setTimeout(rodada, (dur + .45) * 1000);
+  };
+  if (vezes > 1) mostrarBarraAlarme(texto);
+  rodada();
+}
+
+function pararAlarme() {
+  clearTimeout(alarme.proxima);
+  if (alarme.saida && audioCtx) {
+    const s = alarme.saida;
+    try { s.gain.setTargetAtTime(0, audioCtx.currentTime, .03); } catch (_) {}
+    setTimeout(() => { try { s.disconnect(); } catch (_) {} }, 400);
+  }
+  if (alarme.ativo && navigator.vibrate) { try { navigator.vibrate(0); } catch (_) {} }
+  Object.assign(alarme, { ativo: false, saida: null, proxima: null });
+  const barra = $('#alarme-tocando');
+  if (!barra) return;
+  barra.hidden = true;
+  document.body.appendChild(barra);
+}
+
+/* Com uma janela (dialog) aberta, o resto da página fica bloqueado para cliques.
+   Por isso a barra do alarme vai para dentro da janela aberta, onde o "Parar" funciona. */
+function posicionarBarraAlarme() {
+  const barra = $('#alarme-tocando');
+  const janela = $$('dialog[open]').pop();
+  (janela || document.body).appendChild(barra);
+}
+function mostrarBarraAlarme(texto) {
+  $('#alarme-texto').textContent = texto;
+  posicionarBarraAlarme();
+  $('#alarme-tocando').hidden = false;
+}
+
+/** Som escolhido no formulário de Configurações (para o botão "Ouvir" antes de salvar). */
+function somDoFormulario() {
+  return {
+    som: true, toque: $('#cfg-toque').value, repetir: Number($('#cfg-repetir').value),
+    volume: Number($('#cfg-volume').value), vibrar: $('#cfg-vibrar').checked
+  };
+}
+
+/* O fim do ciclo também é agendado com um setTimeout único: em aba de fundo
+   o navegador atrasa os setInterval, mas respeita melhor um timeout só. */
+let timeoutFimCiclo = null;
+function agendarFimCiclo() {
+  clearTimeout(timeoutFimCiclo);
+  if (timer.rodando) timeoutFimCiclo = setTimeout(tique, Math.max(0, timer.fim - Date.now()) + 30);
 }
 
 /** Restaura o timer salvo (continua contando mesmo depois de recarregar a página). */
@@ -892,7 +1050,7 @@ function restaurarTimer() {
   $$('input[name="modo"]').forEach(r => { r.checked = r.value === timer.modo; });
   if (timer.rodando) {
     if (Date.now() >= timer.fim) terminarCiclo();
-    else timer.intervalo = setInterval(tique, 250);
+    else { timer.intervalo = setInterval(tique, 250); agendarFimCiclo(); }
   } else if (!timer.restante || timer.restante > duracaoModo(timer.modo)) {
     timer.restante = duracaoModo(timer.modo);
   }
@@ -994,9 +1152,19 @@ function abrirConfig() {
   $('#cfg-curta').value = c.curta;
   $('#cfg-longa').value = c.longa;
   $('#cfg-som').checked = c.som;
+  $('#cfg-toque').value = c.toque;
+  $('#cfg-repetir').value = String(c.repetir);
+  $('#cfg-volume').value = String(c.volume);
+  $('#cfg-volume-valor').textContent = `${c.volume}%`;
+  $('#cfg-vibrar').checked = c.vibrar;
   $('#cfg-aviso').checked = c.aviso;
   $('#cfg-atalhos').checked = c.atalhos;
-  $('#cfg-aviso-min').value = String(c.avisoMin);
+  marcarChips('lembrete-padrao', c.lembretesPadrao);
+  $('#cfg-resumo').checked = c.resumoDiario;
+  $('#cfg-estudo-inicio').value = c.estudoInicio;
+  $('#cfg-estudo-fim').value = c.estudoFim;
+  if (window.Nuvem) window.Nuvem.renderConta();
+  else $('#conta-nuvem').innerHTML = '<p class="field__hint" style="margin:0">Para entrar com sua conta e sincronizar, abra o PrazoCerto pelo link do site (<strong>prazocerto.github.io</strong>).</p>';
   atualizarStatusAviso();
   $('#erro-config').hidden = true;
   renderMaterias();
@@ -1012,9 +1180,17 @@ function salvarConfig(e) {
     erro.hidden = false;
     return;
   }
+  const estudoInicio = $('#cfg-estudo-inicio').value, estudoFim = $('#cfg-estudo-fim').value;
+  if (!estudoInicio || !estudoFim || estudoInicio >= estudoFim) {
+    erro.textContent = 'Na janela de estudo, o horário final precisa ser depois do inicial.';
+    erro.hidden = false;
+    return;
+  }
   erro.hidden = true;
-  Store.salvarConfig({ nome: $('#cfg-nome').value.trim(), foco, curta, longa, som: $('#cfg-som').checked,
-    aviso: $('#cfg-aviso').checked, avisoMin: Number($('#cfg-aviso-min').value), atalhos: $('#cfg-atalhos').checked });
+  pararAlarme();
+  Store.salvarConfig({ nome: $('#cfg-nome').value.trim(), foco, curta, longa, ...somDoFormulario(), som: $('#cfg-som').checked,
+    aviso: $('#cfg-aviso').checked, lembretesPadrao: lerChips('lembrete-padrao'), atalhos: $('#cfg-atalhos').checked,
+    resumoDiario: $('#cfg-resumo').checked, estudoInicio, estudoFim });
   if (!timer.rodando) timer.restante = duracaoModo(timer.modo);
   salvarTimer();
   toast('⚙️ Configurações salvas');
@@ -1111,23 +1287,51 @@ async function apagarTudo() {
 }
 
 /* ================================================================
-   8.1 AVISOS DE PRAZO (NOTIFICAÇÕES DO NAVEGADOR)
+   8.1 LEMBRETES DE PRAZO (NOTIFICAÇÕES)
    ----------------------------------------------------------------
-   A cada 30 segundos o app procura tarefas pendentes cujo prazo vence
-   dentro da antecedência escolhida (1 hora por padrão). Cada prazo é
-   avisado UMA vez: o id da tarefa e o prazo ficam salvos no LocalStorage
-   (se o prazo for alterado, ele volta a ser avisado).
-   Com permissão, o aviso é uma notificação do sistema, que aparece mesmo
-   com a aba em segundo plano; sem permissão, aparece só dentro da página.
-   Limitação: funciona enquanto o PrazoCerto estiver aberto em alguma aba.
+   Cada tarefa tem os seus lembretes (na hora, 15 min, 30 min, 1 hora,
+   2 horas, 1 dia antes). Sem escolha, ela usa os lembretes padrão das
+   Configurações. Cada lembrete é avisado UMA vez: a chave "id|minutos"
+   e o prazo ficam salvos (se o prazo mudar, ele volta a valer).
+   A notificação sai pelo service worker (registration.showNotification),
+   que é o único jeito aceito no Android e no app instalado.
+   Limite da web: sem servidor, o lembrete só dispara com o PrazoCerto
+   aberto (pode estar minimizado ou em outra aba). Para tocar com o
+   celular bloqueado, a tarefa pode ir para o calendário do celular.
    ================================================================ */
 const suportaNotificacao = () => 'Notification' in window;
-const iconeApp = () => $('link[rel="icon"]').href;
+const viaLink = () => window.isSecureContext && location.protocol.startsWith('http');
+const ehAndroid = () => /android/i.test(navigator.userAgent);
+const urlApp = caminho => new URL(caminho, location.href).href;
+
+const lembretesDe = t => (t && Array.isArray(t.lembretes) ? t.lembretes : Store.getConfig().lembretesPadrao);
+const ROTULO_CURTO = { 0: 'na hora', 15: '15min', 30: '30min', 60: '1h', 120: '2h', 1440: '1 dia' };
+const chipsLembrete = nome => LEMBRETES.map(l => `<label class="chip-check"><input type="checkbox" name="${nome}" value="${l.min}"><span>${l.label}</span></label>`).join('');
+const lerChips = nome => $$(`input[name="${nome}"]:checked`).map(i => Number(i.value)).sort((a, b) => b - a);
+const marcarChips = (nome, lista) => $$(`input[name="${nome}"]`).forEach(i => { i.checked = lista.includes(Number(i.value)); });
 
 function textoAntecedencia(min) {
-  if (min >= 1440) return '1 dia';
-  if (min >= 60) return `${min / 60} hora${min > 60 ? 's' : ''}`;
-  return `${min} minutos`;
+  if (min === 0) return 'na hora do prazo';
+  if (min >= 1440) return '1 dia antes';
+  if (min >= 60) return `${min / 60} hora${min > 60 ? 's' : ''} antes`;
+  return `${min} min antes`;
+}
+function listaLembretes(lista) {
+  const partes = lista.map(textoAntecedencia);
+  return partes.length > 1 ? `${partes.slice(0, -1).join(', ')} e ${partes[partes.length - 1]}` : partes[0];
+}
+function textoFalta(min) {
+  if (min < 60) return `${Math.max(1, min)} min`;
+  if (min < 1440) return formatarMin(Math.round(min / 15) * 15);
+  const d = Math.round(min / 1440);
+  return `${d} dia${d > 1 ? 's' : ''}`;
+}
+
+/** Ao salvar uma tarefa, lembretes cujo horário já passou não disparam de uma vez. */
+function pularLembretesPassados(t) {
+  if (!t || !t.prazo) return;
+  const prazo = new Date(t.prazo).getTime(), agora = Date.now();
+  lembretesDe(t).forEach(m => { if (agora >= prazo - m * 60000) Store.marcarAvisado(`${t.id}|${m}`, t.prazo); });
 }
 
 function verificarAvisos() {
@@ -1136,75 +1340,679 @@ function verificarAvisos() {
   const agora = Date.now();
   const avisados = Store.getAvisos();
   Store.getTarefas().forEach(t => {
-    if (t.concluida || !t.prazo || avisados[t.id] === t.prazo) return;
-    const falta = new Date(t.prazo) - agora;
-    if (falta <= 0 || falta > c.avisoMin * 60000) return;
-    Store.marcarAvisado(t.id, t.prazo);
-    dispararAviso(t, falta);
+    if (t.concluida || !t.prazo) return;
+    const prazo = new Date(t.prazo).getTime();
+    if (isNaN(prazo)) return;
+    const chegaram = lembretesDe(t).filter(m => avisados[`${t.id}|${m}`] !== t.prazo && agora >= prazo - m * 60000);
+    if (!chegaram.length) return;
+    // se vários venceram juntos (app estava fechado), avisa uma vez só
+    chegaram.forEach(m => Store.marcarAvisado(`${t.id}|${m}`, t.prazo));
+    if (agora > prazo + 10 * 60000) return; // já passou faz tempo: não adianta tocar
+    dispararAviso(t, prazo - agora);
   });
+  agendarProximoAviso();
 }
 
-function mostrarNotificacao(titulo, corpo, tag, aoClicarNotif) {
+/* Agenda a próxima checagem para o minuto exato do próximo lembrete */
+let timeoutAviso = null;
+function agendarProximoAviso() {
+  clearTimeout(timeoutAviso);
+  const c = Store.getConfig();
+  if (!c.aviso) return;
+  const agora = Date.now();
+  let proximo = Infinity;
+  Store.getTarefas().forEach(t => {
+    if (t.concluida || !t.prazo) return;
+    const prazo = new Date(t.prazo).getTime();
+    lembretesDe(t).forEach(m => { const alvo = prazo - m * 60000; if (alvo > agora && alvo < proximo) proximo = alvo; });
+  });
+  if (proximo < Infinity) timeoutAviso = setTimeout(verificarAvisos, Math.min(proximo - agora + 500, 6 * 3600000));
+}
+
+async function registroSW() {
+  if (!('serviceWorker' in navigator) || !viaLink()) return null;
+  try { return await Promise.race([navigator.serviceWorker.ready, new Promise(r => setTimeout(() => r(null), 3000))]); }
+  catch (_) { return null; }
+}
+
+/** Mostra a notificação do sistema. Devolve true se conseguiu. */
+async function mostrarNotificacao(titulo, corpo, tag, { tarefaId = null, insistente = false } = {}) {
   if (!suportaNotificacao() || Notification.permission !== 'granted') return false;
+  const opcoes = {
+    body: corpo, tag, renotify: true, requireInteraction: insistente, lang: 'pt-BR',
+    icon: urlApp('assets/icons/icon-192.png'), vibrate: [400, 150, 400, 150, 700],
+    data: { tarefaId, url: urlApp(tarefaId ? `./?abrir=${encodeURIComponent(tarefaId)}#tarefas` : './#hoje') }
+  };
+  const reg = await registroSW();
+  if (reg && reg.showNotification) {
+    try { await reg.showNotification(titulo, opcoes); return true; } catch (_) { /* tenta do jeito antigo */ }
+  }
   try {
-    const n = new Notification(titulo, { body: corpo, tag, icon: iconeApp() });
-    n.onclick = () => { window.focus(); n.close(); if (aoClicarNotif) aoClicarNotif(); };
+    const n = new Notification(titulo, opcoes);
+    n.onclick = () => { window.focus(); n.close(); if (tarefaId) abrirTarefaPorId(tarefaId); };
     return true;
   } catch (_) {
-    return false; // alguns navegadores só permitem notificação via service worker
+    return false;
   }
 }
 
+function abrirTarefaPorId(id) {
+  pararAlarme();
+  const t = Store.getTarefa(id);
+  if (t) abrirFormTarefa(t);
+}
+
 function dispararAviso(t, falta) {
-  const min = Math.max(1, Math.round(falta / 60000));
-  const quanto = min >= 60 ? formatarMin(min) : `${min} min`;
-  const titulo = `⏰ Faltam ${quanto}: ${t.titulo}`;
-  const corpo = `${infoMateria(t.materia).nome} · entrega às ${hora(new Date(t.prazo))}`;
-  mostrarNotificacao(titulo, corpo, `prazo-${t.id}`, () => abrirFormTarefa(Store.getTarefa(t.id)));
-  tocarSom();
+  const min = Math.round(falta / 60000);
+  const titulo = min <= 1 ? `⏰ É agora: ${t.titulo}` : `⏰ Faltam ${textoFalta(min)}: ${t.titulo}`;
+  const d = new Date(t.prazo);
+  const quando = diffDias(d, new Date()) === 0 ? 'hoje' : diffDias(d, new Date()) === 1 ? 'amanhã' : dataCurta(d);
+  const corpo = `${infoMateria(t.materia).nome} · entrega ${quando} às ${hora(d)}`;
+  mostrarNotificacao(titulo, corpo, `prazo-${t.id}`, { tarefaId: t.id, insistente: true });
+  tocarAlarme(titulo);
   // o aviso dentro da página aparece sempre (também quando a notificação está bloqueada)
-  toast(`${titulo} — ${corpo}`, { duracao: 9000, acao: 'Focar', aoClicar: () => focarEm(t.id) });
+  toast(`${titulo} — ${corpo}`, { duracao: 12000, acao: 'Focar', aoClicar: () => { pararAlarme(); focarEm(t.id); } });
+}
+
+/** Texto de ajuda para liberar as notificações, conforme o aparelho. */
+function passosDesbloquear() {
+  if (ehIOS()) return 'Ajustes do iPhone → Notificações → PrazoCerto → Permitir Notificações.';
+  if (ehAndroid() && rodandoComoApp()) return 'Configurações do Android → Apps → PrazoCerto → Notificações → Permitir.';
+  if (ehAndroid()) return 'Toque no ícone à esquerda do endereço (⚙️ ou 🔒) → Permissões → Notificações → Permitir. Depois recarregue a página.';
+  return 'Clique no ícone à esquerda do endereço (🔒 ou ⚙️) → Notificações → Permitir. Depois recarregue a página (F5).';
 }
 
 function atualizarStatusAviso() {
   const ligado = $('#cfg-aviso').checked;
   const el = $('#aviso-status');
-  $('#cfg-aviso-min').disabled = !ligado;
-  $('#btn-testar-aviso').disabled = !ligado;
-  let texto = 'Desligado.', classe = '';
+  const btnPermitir = $('#btn-permitir-aviso');
+  $$('input[name="lembrete-padrao"]').forEach(i => { i.disabled = !ligado; });
+  btnPermitir.hidden = true;
+  let html = 'Desligado: nenhum lembrete de prazo vai tocar.', classe = '';
   if (ligado) {
-    const antes = textoAntecedencia(Number($('#cfg-aviso-min').value));
-    if (!suportaNotificacao()) {
-      texto = `Este navegador não tem notificações: o aviso de ${antes} antes aparece só dentro do app.`; classe = 'erro-api';
+    if (!viaLink()) {
+      html = 'As notificações só funcionam pelo link do site (<strong>prazocerto.github.io</strong>). Aberto direto do arquivo, o lembrete aparece só dentro do app.'; classe = 'erro-api';
+    } else if (ehIOS() && !suportaNotificacao()) {
+      html = 'No iPhone, as notificações só funcionam com o app instalado: Safari → Compartilhar ⬆️ → <em>Adicionar à Tela de Início</em>, e abra pelo ícone (iOS 16.4 ou mais novo). Enquanto isso, o lembrete aparece só dentro do app.'; classe = 'erro-api';
+    } else if (!suportaNotificacao()) {
+      html = 'Este navegador não tem notificações: o lembrete aparece só dentro do app (com som).'; classe = 'erro-api';
     } else if (Notification.permission === 'granted') {
-      texto = `✅ Ligado: aviso ${antes} antes de cada prazo, mesmo com a aba em segundo plano (com o app aberto).`; classe = 'ok';
+      html = '✅ Notificações liberadas. Os lembretes chegam com o PrazoCerto aberto, mesmo minimizado ou em outra aba. Com o celular bloqueado, use 📅 Google Agenda na tarefa.'; classe = 'ok';
     } else if (Notification.permission === 'denied') {
-      texto = 'O navegador bloqueou as notificações. Libere no cadeado ao lado do endereço; enquanto isso, o aviso aparece só dentro do app.'; classe = 'erro-api';
+      html = `🚫 O navegador está bloqueando as notificações. Para liberar:<span class="passos-permissao" style="display:block">${esc(passosDesbloquear())}</span>`; classe = 'erro-api';
     } else {
-      texto = 'Clique em “Permitir” quando o navegador perguntar.';
+      html = 'Falta liberar: toque em <strong>Permitir notificações</strong> e depois em <em>Permitir</em>.';
+      btnPermitir.hidden = false;
     }
   }
-  el.textContent = texto;
+  el.innerHTML = html;
   el.className = `aviso-status ${classe}`;
+}
+
+/** Pede permissão ao navegador (precisa vir de um clique). */
+async function pedirPermissao() {
+  if (!suportaNotificacao() || !viaLink() || Notification.permission !== 'default') return;
+  try { await Notification.requestPermission(); } catch (_) { /* navegador antigo */ }
+  if (Notification.permission === 'default') {
+    toast('O navegador não mostrou a pergunta? Procure um sininho 🔕 na barra de endereço e escolha Permitir.', { duracao: 9000 });
+  }
 }
 
 async function aoMudarAviso() {
   const ligado = $('#cfg-aviso').checked;
   preparaSom(); // aproveita o clique para liberar o som do aviso
-  if (ligado && suportaNotificacao() && Notification.permission === 'default') {
-    try { await Notification.requestPermission(); } catch (_) { /* navegador antigo */ }
-  }
-  Store.salvarConfig({ aviso: ligado, avisoMin: Number($('#cfg-aviso-min').value) });
+  if (ligado) await pedirPermissao();
+  Store.salvarConfig({ aviso: ligado });
   atualizarStatusAviso();
-  toast(ligado ? `⏰ Avisos ligados: ${textoAntecedencia(Store.getConfig().avisoMin)} antes do prazo` : 'Avisos de prazo desligados');
-  if (ligado) verificarAvisos();
+  toast(ligado ? '⏰ Lembretes de prazo ligados' : 'Lembretes de prazo desligados');
+  if (ligado) verificarAvisos(); else clearTimeout(timeoutAviso);
+  atualizarTudo();
 }
 
-function testarAviso() {
+/** Liga os avisos a partir de outro lugar (ex.: formulário da tarefa). */
+async function ligarAvisos() {
   preparaSom();
-  const ok = mostrarNotificacao('🔔 Teste do PrazoCerto', 'Os avisos de prazo estão funcionando.', 'teste');
-  tocarSom();
-  toast(ok ? '🔔 Notificação de teste enviada' : '🔔 Teste: sem permissão do navegador, o aviso aparece só aqui na página');
+  await pedirPermissao();
+  Store.salvarConfig({ aviso: true });
+  toast('⏰ Lembretes de prazo ligados');
+  atualizarDicaLembretes();
+  verificarAvisos();
+}
+
+async function testarAviso() {
+  preparaSom();
+  await pedirPermissao();
+  const ok = await mostrarNotificacao('🔔 Teste do PrazoCerto', 'Tudo certo! É assim que os lembretes de prazo vão chegar.', 'teste');
+  tocarAlarme('Testando o alarme', { som: somDoFormulario() });
+  atualizarStatusAviso();
+  toast(ok ? '🔔 Notificação de teste enviada' : '🔔 Teste: sem permissão de notificação, o lembrete aparece só aqui na página (com som)');
+}
+
+/** Dica embaixo dos lembretes no formulário da tarefa */
+function atualizarDicaLembretes() {
+  const dica = $('#t-lembretes-dica');
+  if (!dica) return;
+  const lista = lerChips('lembrete');
+  const temPrazo = !!$('#t-prazo').value;
+  if (!Store.getConfig().aviso) dica.innerHTML = '⚠️ Os lembretes estão desligados. <button type="button" class="chip-btn" data-acao="ligar-avisos">Ligar lembretes</button>';
+  else if (!lista.length) dica.textContent = '🔕 Sem lembrete para esta tarefa.';
+  else if (!temPrazo) dica.textContent = 'Defina um prazo para os lembretes funcionarem.';
+  else dica.textContent = `Você vai ser avisado ${listaLembretes(lista)}.`;
+}
+
+/* ---------- Calendário do celular (alarme garantido mesmo com o app fechado) ---------- */
+const dataIcs = d => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+const escIcs = t => String(t).replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+function dobrarIcs(linha) { // linhas de no máximo 75 caracteres (regra do formato .ics)
+  const partes = [];
+  for (let i = 0; i < linha.length; i += 73) partes.push((i ? ' ' : '') + linha.slice(i, i + 73));
+  return partes.join('\r\n');
+}
+function eventoIcs(t) {
+  const inicio = new Date(t.prazo);
+  const fimEv = new Date(inicio.getTime() + 15 * 60000);
+  const descricao = [`Matéria: ${infoMateria(t.materia).nome}`, t.descricao || '', 'Criado no PrazoCerto — https://prazocerto.github.io/'].filter(Boolean).join('\n');
+  const linhas = [
+    'BEGIN:VEVENT', `UID:${t.id}@prazocerto.github.io`, `DTSTAMP:${dataIcs(new Date())}`,
+    `DTSTART:${dataIcs(inicio)}`, `DTEND:${dataIcs(fimEv)}`,
+    `SUMMARY:${escIcs(`⏰ ${t.titulo}`)}`, `DESCRIPTION:${escIcs(descricao)}`
+  ];
+  lembretesDe(t).forEach(m => linhas.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${escIcs(`${t.titulo} — ${textoAntecedencia(m)}`)}`, `TRIGGER:${m ? `-PT${m}M` : 'PT0M'}`, 'END:VALARM'));
+  linhas.push('END:VEVENT');
+  return linhas;
+}
+function baixarIcs(tarefas, nomeArquivo) {
+  const linhas = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//PrazoCerto//PT-BR', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', ...tarefas.flatMap(eventoIcs), 'END:VCALENDAR'];
+  const ics = linhas.map(dobrarIcs).join('\r\n') + '\r\n';
+  if (ehIOS()) { location.href = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`; return; } // no iPhone abre direto o "Adicionar ao Calendário"
+  const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: nomeArquivo });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+/** Tarefa com os dados que estão no formulário agora (mesmo sem salvar). */
+function tarefaDoFormulario() {
+  const titulo = $('#t-titulo').value.trim(), prazo = $('#t-prazo').value;
+  if (!prazo) { toast('Defina um prazo primeiro para criar o alarme no calendário.', { tipo: 'erro' }); $('#t-prazo').focus(); return null; }
+  return { id: $('#t-id').value || `t-${Date.now().toString(36)}`, titulo: titulo || 'Tarefa', prazo,
+    materia: $('#t-materia').value, descricao: $('#t-descricao').value.trim(), lembretes: lerChips('lembrete') };
+}
+function calendarioGoogle() {
+  const t = tarefaDoFormulario();
+  if (!t) return;
+  const ini = new Date(t.prazo), fimEv = new Date(ini.getTime() + 15 * 60000);
+  const lembr = t.lembretes.length ? `Lembretes: ${listaLembretes(t.lembretes)}.` : '';
+  const params = new URLSearchParams({ action: 'TEMPLATE', text: `⏰ ${t.titulo}`, dates: `${dataIcs(ini)}/${dataIcs(fimEv)}`,
+    details: [`Matéria: ${infoMateria(t.materia).nome}`, t.descricao, lembr, 'Criado no PrazoCerto — https://prazocerto.github.io/'].filter(Boolean).join('\n') });
+  window.open(`https://calendar.google.com/calendar/render?${params}`, '_blank', 'noopener');
+  toast('📅 No Google Agenda, confira a notificação (ex.: 1 hora antes) e toque em Salvar.', { duracao: 8000 });
+}
+function calendarioIcs() {
+  const t = tarefaDoFormulario();
+  if (!t) return;
+  baixarIcs([t], `prazo-${normalizar(t.titulo).replace(/[^a-z0-9]+/g, '-').slice(0, 40) || 'tarefa'}.ics`);
+  toast('📅 Abra o arquivo baixado para adicionar ao calendário, com os alarmes desta tarefa.', { duracao: 8000 });
+}
+function exportarTodosCalendario() {
+  const agora = new Date();
+  const futuras = Store.getTarefas().filter(t => !t.concluida && t.prazo && new Date(t.prazo) > agora);
+  if (!futuras.length) { toast('Nenhuma tarefa pendente com prazo no futuro para exportar.', { tipo: 'erro' }); return; }
+  baixarIcs(futuras, 'prazocerto-prazos.ics');
+  toast(`📅 ${futuras.length} prazo(s) exportado(s). Abra o arquivo para adicionar ao seu calendário.`, { duracao: 8000 });
+}
+
+/* ================================================================
+   9. NOVIDADES: REPETIÇÃO, AULAS, MODO PROVA, RESUMO E COMPARTILHAR
+   ================================================================ */
+
+/* ---------- 9.1 Tarefas que se repetem ----------
+   Ao concluir uma tarefa com repetição, a próxima é criada com o prazo
+   avançado (pulando datas que já passaram). "Desfazer" apaga a próxima. */
+const infoRepeticao = id => REPETICOES.find(r => r.id === id) || REPETICOES[0];
+
+function avancarPrazo(prazo, repetir) {
+  const d = new Date(prazo);
+  const diaDoMes = d.getDate();
+  const passo = () => {
+    switch (repetir) {
+      case 'diaria': d.setDate(d.getDate() + 1); break;
+      case 'uteis': do { d.setDate(d.getDate() + 1); } while (d.getDay() === 0 || d.getDay() === 6); break;
+      case 'semanal': d.setDate(d.getDate() + 7); break;
+      case 'quinzenal': d.setDate(d.getDate() + 14); break;
+      case 'mensal': {
+        // mantém o dia do mês; em meses mais curtos, usa o último dia (ex.: 31 → 30)
+        const alvo = new Date(d.getFullYear(), d.getMonth() + 1, 1, d.getHours(), d.getMinutes());
+        const ultimo = new Date(alvo.getFullYear(), alvo.getMonth() + 1, 0).getDate();
+        alvo.setDate(Math.min(diaDoMes, ultimo));
+        d.setTime(alvo.getTime());
+        break;
+      }
+      default: d.setDate(d.getDate() + 7);
+    }
+  };
+  let guarda = 0;
+  do { passo(); } while (d <= new Date() && ++guarda < 1000);
+  return paraInput(d);
+}
+
+function criarProximaRepeticao(t) {
+  if (!t || !t.repetir || !t.prazo) return null;
+  if (t.proximaId && Store.getTarefa(t.proximaId)) return null; // já criada
+  const base = Date.now().toString(36);
+  const nova = Store.salvarTarefa({
+    titulo: t.titulo, materia: t.materia, tipo: t.tipo, prioridade: t.prioridade,
+    estimativa: t.estimativa, descricao: t.descricao, repetir: t.repetir,
+    prazo: avancarPrazo(t.prazo, t.repetir),
+    subtarefas: (t.subtarefas || []).filter(x => !x.plano).map((x, i) => ({ id: `s-${base}-${i}`, texto: x.texto, feita: false })),
+    ...(Array.isArray(t.lembretes) ? { lembretes: t.lembretes } : {})
+  });
+  pularLembretesPassados(nova);
+  Store.salvarTarefa({ id: t.id, proximaId: nova.id });
+  return nova;
+}
+
+function desfazerRepeticao(id) {
+  const t = Store.getTarefa(id);
+  if (!t || !t.proximaId) return;
+  const proxima = Store.getTarefa(t.proximaId);
+  if (proxima && !proxima.concluida) Store.removerTarefa(proxima.id);
+  Store.salvarTarefa({ id, proximaId: null });
+}
+
+/* ---------- 9.2 Horário das aulas e horários livres ---------- */
+const ORDEM_SEMANA = [1, 2, 3, 4, 5, 6, 0]; // a semana começa na segunda
+const paraMin = hhmm => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
+const deMin = m => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+const aulasDoDia = diaSemana => Store.getAulas().filter(a => a.dia === diaSemana);
+const minutosAgora = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
+
+function aulaLinhaHTML(a, ehHoje) {
+  const mat = infoMateria(a.materia);
+  const agora = minutosAgora();
+  const acontecendo = ehHoje && agora >= paraMin(a.inicio) && agora < paraMin(a.fim);
+  const passou = ehHoje && agora >= paraMin(a.fim);
+  return `<li class="${passou ? 'aula-passou' : ''}">
+    <span class="hora-tag">${a.inicio}–${a.fim}</span>
+    <span class="materia-tag" style="--cor:${mat.cor}">${esc(mat.nome)}</span>
+    ${a.local ? `<span class="sub">📍 ${esc(a.local)}</span>` : ''}
+    ${acontecendo ? '<span class="agora-tag">agora</span>' : ''}
+  </li>`;
+}
+
+/** Blocos livres de um dia (em minutos), sem as aulas e dentro da janela de estudo. */
+function horariosLivres(dia, minimo = 45) {
+  const c = Store.getConfig();
+  const rel = diffDias(dia, new Date());
+  if (rel < 0) return [];
+  let inicio = paraMin(c.estudoInicio);
+  const fim = paraMin(c.estudoFim);
+  if (rel === 0) inicio = Math.max(inicio, Math.ceil(minutosAgora() / 15) * 15);
+  // 10 minutos antes e depois de cada aula para o deslocamento
+  const ocupados = aulasDoDia(dia.getDay()).map(a => [paraMin(a.inicio) - 10, paraMin(a.fim) + 10]).sort((x, y) => x[0] - y[0]);
+  const livres = [];
+  let cursor = inicio;
+  ocupados.forEach(([a, b]) => { if (a - cursor >= minimo) livres.push([cursor, a]); cursor = Math.max(cursor, b); });
+  if (fim - cursor >= minimo) livres.push([cursor, fim]);
+  return livres;
+}
+
+/** Sugestão do que estudar: a revisão de prova do dia ou a tarefa pendente mais urgente. */
+function sugestaoDeEstudo() {
+  const rev = revisoesDeHoje()[0];
+  if (rev) return { tarefa: rev.tarefa, texto: `${rev.tarefa.titulo}: ${rev.sub.texto.split(' — ').pop()}` };
+  const t = Store.getTarefas().filter(x => !x.concluida && x.prazo).sort(compararPrazo)[0];
+  return t ? { tarefa: t, texto: t.titulo } : null;
+}
+
+function renderAulasELivresDoDia(d) {
+  const ehHoje = diffDias(d, new Date()) === 0;
+  const aulas = aulasDoDia(d.getDay());
+  $('#dia-aulas').innerHTML = aulas.length
+    ? `<div class="dia-bloco"><h3>🎓 Aulas</h3><ul class="mini-lista">${aulas.map(a => aulaLinhaHTML(a, ehHoje)).join('')}</ul></div>` : '';
+  // horários livres: hoje sempre; outros dias só quando há aula (senão seria o dia inteiro)
+  if (!(ehHoje || aulas.length) || diffDias(d, new Date()) < 0) { $('#dia-livres').innerHTML = ''; return; }
+  const livres = horariosLivres(d).slice(0, 3);
+  const sug = ehHoje ? sugestaoDeEstudo() : null;
+  $('#dia-livres').innerHTML = `<div class="dia-bloco"><h3>🕒 Horários livres para estudar</h3>${livres.length
+    ? livres.map(([a, b], i) => `<div class="livre"><span>🟢 <b>${deMin(a)}–${deMin(b)}</b> · ${formatarMin(b - a)} livre${b - a > 59 ? 's' : ''}</span>
+        ${i === 0 && sug ? `<span class="sub">Sugestão: ${esc(sug.texto)}</span><button type="button" class="btn btn--ghost btn--sm" data-acao="focar" data-id="${sug.tarefa.id}">🍅 Focar</button>` : ''}</div>`).join('')
+    : '<p class="sub">Sem um intervalo livre de pelo menos 45 minutos neste dia.</p>'}</div>`;
+}
+
+function renderAulasSemana() {
+  const aulas = Store.getAulas();
+  const hojeDia = new Date().getDay();
+  if (!aulas.length) {
+    $('#aulas-semana').innerHTML = '<p class="sub">Nenhuma aula cadastrada ainda. Toque em <b>＋ Adicionar aula</b>: dá para marcar vários dias de uma vez.</p>';
+    return;
+  }
+  $('#aulas-semana').innerHTML = `<div class="semana-aulas">${ORDEM_SEMANA.filter(d => aulas.some(a => a.dia === d)).map(d => `
+    <div class="semana-dia ${d === hojeDia ? 'hoje' : ''}">
+      <h3>${DIAS_SEMANA[d]}${d === hojeDia ? ' · hoje' : ''}</h3>
+      ${aulas.filter(a => a.dia === d).map(a => {
+        const mat = infoMateria(a.materia);
+        return `<button type="button" class="aula-chip" style="--cor:${mat.cor}" data-acao="editar-aula" data-id="${a.id}"
+          aria-label="Editar aula de ${esc(mat.nome)}, ${DIAS_SEMANA[d]}, das ${a.inicio} às ${a.fim}">
+          <b>${esc(mat.nome)}</b><small>${a.inicio}–${a.fim}${a.local ? ` · ${esc(a.local)}` : ''}</small></button>`;
+      }).join('')}
+    </div>`).join('')}</div>`;
+}
+
+function abrirFormAula(aula = null) {
+  const editando = !!(aula && aula.id);
+  $('#aula-titulo').textContent = editando ? '✏️ Editar aula' : '🎓 Nova aula';
+  $('#a-id').value = editando ? aula.id : '';
+  $('#a-materia').value = editando ? aula.materia : Store.getMaterias()[0].id;
+  marcarChips('aula-dia', editando ? [aula.dia] : []);
+  $('#a-inicio').value = editando ? aula.inicio : '19:10';
+  $('#a-fim').value = editando ? aula.fim : '20:50';
+  $('#a-local').value = editando ? aula.local : '';
+  $('#a-dias-dica').textContent = editando ? '(marcando outro dia, a aula é copiada para ele)' : '(marque todos os dias que tem essa aula)';
+  $('#btn-excluir-aula').hidden = !editando;
+  $('#erro-aula').hidden = true;
+  abrirModal('dlg-aula');
+}
+
+function salvarFormAula(e) {
+  e.preventDefault();
+  const id = $('#a-id').value;
+  const dias = lerChips('aula-dia');
+  const dados = { materia: $('#a-materia').value, inicio: $('#a-inicio').value, fim: $('#a-fim').value, local: $('#a-local').value.trim() };
+  const erro = $('#erro-aula');
+  const mostrar = msg => { erro.textContent = msg; erro.hidden = false; };
+  if (!dias.length) return mostrar('Marque pelo menos um dia da semana.');
+  if (!dados.inicio || !dados.fim || dados.inicio >= dados.fim) return mostrar('O horário de término precisa ser depois do início.');
+  const conflito = Store.getAulas().find(a => a.id !== id && dias.includes(a.dia) && dados.inicio < a.fim && a.inicio < dados.fim);
+  if (conflito) return mostrar(`Já tem aula de ${infoMateria(conflito.materia).nome} na ${DIAS_SEMANA[conflito.dia].toLowerCase()} das ${conflito.inicio} às ${conflito.fim}.`);
+  erro.hidden = true;
+  const ordenados = ORDEM_SEMANA.filter(d => dias.includes(d));
+  ordenados.forEach((dia, i) => Store.salvarAula({ ...dados, dia, ...(id && i === 0 ? { id } : {}) }));
+  fecharModal($('#dlg-aula'));
+  toast(id ? '✏️ Aula atualizada' : `🎓 Aula adicionada em ${ordenados.length} dia(s)`);
+  atualizarTudo();
+}
+
+function excluirAula() {
+  const id = $('#a-id').value;
+  const aula = Store.getAulas().find(a => a.id === id);
+  if (!aula) return;
+  Store.removerAula(id);
+  fecharModal($('#dlg-aula'));
+  toast(`🗑️ Aula de ${infoMateria(aula.materia).nome} removida`, { acao: 'Desfazer', aoClicar: () => { Store.salvarAula({ ...aula, id: undefined }); atualizarTudo(); } });
+  atualizarTudo();
+}
+
+/* ---------- 9.3 Modo prova: plano de revisão ----------
+   Divide o estudo pelos dias que faltam (no máximo 7 sessões).
+   Cada sessão vira uma etapa do checklist com a data dela. */
+function gerarPlanoRevisao(prazo, agora = new Date()) {
+  const prova = new Date(prazo);
+  if (isNaN(prova) || prova < agora) return null;
+  const inicio = agora.getHours() >= 21 ? somarDias(inicioDia(agora), 1) : inicioDia(agora); // de noite, começa amanhã
+  const dias = diffDias(prova, inicio); // dias livres antes do dia da prova
+  const datas = [];
+  if (dias <= 0) datas.push(inicioDia(prova));
+  else {
+    const n = Math.min(dias, 7);
+    for (let i = 0; i < n; i++) datas.push(somarDias(inicio, n === 1 ? 0 : Math.round(i * (dias - 1) / (n - 1))));
+  }
+  const n = datas.length;
+  let textos;
+  if (n === 1) textos = [dias <= 0 ? 'Revisão rápida dos pontos principais ⚡' : 'Revisão geral + exercícios 🧪'];
+  else if (n === 2) textos = ['Estudar o conteúdo e fazer um resumo 📖', 'Revisão final leve e dormir bem 😴'];
+  else if (n === 3) textos = ['Estudar o conteúdo 📖', 'Resolver exercícios / simulado 🧪', 'Revisão final leve e dormir bem 😴'];
+  else {
+    const partes = n - 3;
+    textos = [...Array.from({ length: partes }, (_, i) => `Estudar o conteúdo (parte ${i + 1} de ${partes}) 📖`),
+      'Fazer resumo ou mapa mental 🗺️', 'Resolver exercícios / simulado 🧪', 'Revisão final leve e dormir bem 😴'];
+  }
+  const base = Date.now().toString(36);
+  return datas.map((d, i) => ({ id: `p-${base}-${i}`, texto: `${maiuscula(dataCurta(d))} — ${textos[i]}`, feita: false, data: dataISO(d), plano: true }));
+}
+
+function atualizarModoProva() {
+  const caixa = $('#t-modo-prova');
+  const ehProva = $('#t-tipo').value === 'prova';
+  caixa.hidden = !ehProva;
+  if (!ehProva) return;
+  const prazo = $('#t-prazo').value;
+  const btn = $('#btn-plano-revisao');
+  const temPlano = estado.subtarefasEdicao.some(x => x.plano);
+  btn.textContent = temPlano ? '🔄 Refazer plano' : 'Criar plano de revisão';
+  if (!prazo || new Date(prazo) < new Date()) {
+    $('#modo-prova-texto').textContent = 'Coloque a data e a hora da prova (no futuro) para montar o plano de revisão.';
+    btn.disabled = true;
+    return;
+  }
+  btn.disabled = false;
+  const plano = gerarPlanoRevisao(prazo) || [];
+  const faltam = diffDias(new Date(prazo), new Date());
+  $('#modo-prova-texto').textContent = faltam <= 0
+    ? 'A prova é hoje: o plano vira uma revisão rápida.'
+    : `Faltam ${faltam} dia(s): o plano terá ${plano.length} sessão(ões) de revisão, uma por dia, e cada uma vira uma etapa do checklist.`;
+}
+
+function criarPlanoNoFormulario() {
+  const plano = gerarPlanoRevisao($('#t-prazo').value);
+  if (!plano) { toast('Coloque uma data de prova no futuro.', { tipo: 'erro' }); return; }
+  estado.subtarefasEdicao = [...estado.subtarefasEdicao.filter(x => !x.plano), ...plano];
+  renderSubtarefasEdicao();
+  atualizarModoProva();
+  toast(`📚 Plano com ${plano.length} sessão(ões) criado. Salve a tarefa para guardar.`);
+}
+
+function criarPlanoDireto(id) {
+  const t = Store.getTarefa(id);
+  const plano = t && gerarPlanoRevisao(t.prazo);
+  if (!plano) return;
+  Store.salvarTarefa({ id, subtarefas: [...t.subtarefas.filter(x => !x.plano), ...plano] });
+  toast(`📚 Plano de revisão criado: ${plano.length} sessão(ões) até a prova`);
+  atualizarTudo();
+}
+
+/** Sessões de revisão marcadas para hoje (e atrasadas), da prova mais próxima para a mais distante. */
+function revisoesDeHoje() {
+  const hoje = dataISO(new Date());
+  return Store.getTarefas().filter(t => !t.concluida && t.tipo === 'prova' && t.prazo).sort(compararPrazo)
+    .flatMap(t => (t.subtarefas || []).filter(x => x.plano && !x.feita && x.data === hoje).map(sub => ({ tarefa: t, sub })));
+}
+
+function renderHojeExtra() {
+  const agora = new Date();
+  const cards = [];
+  // Aulas de hoje + intervalo livre agora
+  const aulas = aulasDoDia(agora.getDay());
+  if (aulas.length) {
+    const livreAgora = horariosLivres(agora, 30).find(([a]) => a <= Math.ceil(minutosAgora() / 15) * 15);
+    const sug = livreAgora && sugestaoDeEstudo();
+    cards.push(`<section class="card extra-card" aria-labelledby="titulo-aulas-hoje">
+      <h2 id="titulo-aulas-hoje">🎓 Aulas de hoje</h2>
+      <ul class="mini-lista">${aulas.map(a => aulaLinhaHTML(a, true)).join('')}</ul>
+      ${livreAgora ? `<p class="sub">🟢 Livre agora até ${deMin(livreAgora[1])}${sug ? ` · bom momento para: <b>${esc(sug.texto)}</b>` : ''}</p>
+        ${sug ? `<div class="botoes-linha"><button type="button" class="btn btn--ghost btn--sm" data-acao="focar" data-id="${sug.tarefa.id}">🍅 Focar agora</button></div>` : ''}` : ''}
+    </section>`);
+  }
+  // Modo prova: revisão de hoje, ou prova chegando sem plano
+  const provas = Store.getTarefas().filter(t => !t.concluida && t.tipo === 'prova' && t.prazo && new Date(t.prazo) >= agora).sort(compararPrazo);
+  const prova = provas.find(t => diffDias(new Date(t.prazo), agora) <= 14);
+  if (prova) {
+    const faltam = diffDias(new Date(prova.prazo), agora);
+    const quando = faltam === 0 ? 'é hoje' : faltam === 1 ? 'é amanhã' : `em ${faltam} dias`;
+    const plano = prova.subtarefas.filter(x => x.plano);
+    const hojeISO = dataISO(agora);
+    const deHoje = plano.find(x => x.data === hojeISO && !x.feita);
+    const atrasadas = plano.filter(x => x.data < hojeISO && !x.feita).length;
+    const feitas = plano.filter(x => x.feita).length;
+    let corpo;
+    if (!plano.length) {
+      corpo = `<p class="sub">Ainda sem plano de revisão. O app divide o estudo pelos dias que faltam.</p>
+        <div class="botoes-linha"><button type="button" class="btn btn--primary btn--sm" data-acao="criar-plano" data-id="${prova.id}">📚 Criar plano de revisão</button></div>`;
+    } else if (deHoje) {
+      corpo = `<div class="revisao-hoje"><span class="sub">Revisão de hoje</span><strong>${esc(deHoje.texto.split(' — ').pop())}</strong>
+        <div class="botoes-linha">
+          <button type="button" class="btn btn--primary btn--sm" data-acao="sub" data-id="${prova.id}" data-sub="${deHoje.id}">✓ Feito</button>
+          <button type="button" class="btn btn--ghost btn--sm" data-acao="focar" data-id="${prova.id}">🍅 Focar</button>
+        </div></div>`;
+    } else {
+      corpo = `<p class="sub">${feitas === plano.length ? '✅ Plano de revisão completo. Boa prova!' : 'Hoje não tem sessão de revisão marcada. Descanse ou adiante a próxima.'}</p>`;
+    }
+    cards.push(`<section class="card extra-card" aria-labelledby="titulo-prova-hoje">
+      <h2 id="titulo-prova-hoje">📚 ${esc(prova.titulo)} ${quando}</h2>
+      <p class="sub">${maiuscula(dataCurta(new Date(prova.prazo)))} às ${hora(new Date(prova.prazo))}${plano.length ? ` · ${feitas}/${plano.length} sessões feitas` : ''}${atrasadas ? ` · ⚠️ ${atrasadas} atrasada(s)` : ''}</p>
+      ${corpo}
+    </section>`);
+  }
+  $('#hoje-extra').innerHTML = cards.join('');
+}
+
+/* ---------- 9.4 Resumo do dia ---------- */
+function conteudoResumo() {
+  const agora = new Date();
+  const pend = Store.getTarefas().filter(t => !t.concluida && t.prazo).sort(compararPrazo);
+  const linha = t => `<li><b>${hora(new Date(t.prazo))}</b> · ${esc(t.titulo)} <span class="sub">(${esc(infoMateria(t.materia).nome)})</span></li>`;
+  const aulas = aulasDoDia(agora.getDay());
+  const atrasadas = pend.filter(t => new Date(t.prazo) < agora);
+  const hoje = pend.filter(t => new Date(t.prazo) >= agora && diffDias(new Date(t.prazo), agora) === 0);
+  const amanha = pend.filter(t => diffDias(new Date(t.prazo), agora) === 1);
+  const revisoes = revisoesDeHoje();
+  const s = calcularStats();
+  const secoes = [];
+  if (atrasadas.length) secoes.push(`<div class="resumo-sec alerta"><h3>⚠️ Atrasadas (${atrasadas.length})</h3><ul>${atrasadas.slice(0, 4).map(t => `<li>${esc(t.titulo)} <span class="sub">· venceu ${dataCurta(new Date(t.prazo))}</span></li>`).join('')}</ul></div>`);
+  if (aulas.length) secoes.push(`<div class="resumo-sec"><h3>🎓 Aulas de hoje</h3><ul>${aulas.map(a => `<li><b>${a.inicio}–${a.fim}</b> · ${esc(infoMateria(a.materia).nome)}${a.local ? ` <span class="sub">(${esc(a.local)})</span>` : ''}</li>`).join('')}</ul></div>`);
+  if (hoje.length) secoes.push(`<div class="resumo-sec"><h3>📌 Vencem hoje (${hoje.length})</h3><ul>${hoje.map(linha).join('')}</ul></div>`);
+  if (revisoes.length) secoes.push(`<div class="resumo-sec"><h3>📚 Revisão de prova</h3><ul>${revisoes.map(r => `<li>${esc(r.tarefa.titulo)}: ${esc(r.sub.texto.split(' — ').pop())}</li>`).join('')}</ul></div>`);
+  if (amanha.length) secoes.push(`<div class="resumo-sec"><h3>⏭️ Amanhã (${amanha.length})</h3><ul>${amanha.map(linha).join('')}</ul></div>`);
+  const vazio = !atrasadas.length && !hoje.length && !amanha.length && !revisoes.length;
+  return `${vazio ? '<p class="resumo-tudo-livre">🏖️ Nada vencendo hoje nem amanhã. Dia tranquilo: que tal adiantar alguma coisa?</p>' : ''}
+    ${secoes.join('')}
+    ${s.sequencia ? `<p class="resumo-tudo-livre">🔥 Você está há ${s.sequencia} dia(s) seguidos concluindo tarefas. Não quebra a sequência!</p>` : ''}`;
+}
+
+function mostrarResumo() {
+  const agora = new Date();
+  const nome = Store.getConfig().nome;
+  $('#resumo-data').textContent = maiuscula(agora.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }));
+  const emoji = agora.getHours() < 12 && agora.getHours() >= 5 ? '☀️' : agora.getHours() < 18 && agora.getHours() >= 5 ? '🌤️' : '🌙';
+  $('#resumo-titulo').textContent = `${emoji} ${saudacao()}${nome ? `, ${nome}` : ''}! Seu dia:`;
+  $('#resumo-conteudo').innerHTML = conteudoResumo();
+  $('#resumo-todo-dia').checked = Store.getConfig().resumoDiario;
+  abrirModal('dlg-resumo');
+}
+
+function mostrarResumoSeNovoDia() {
+  const hojeISO = dataISO(new Date());
+  if (!Store.getConfig().resumoDiario || Store.getResumoVisto() === hojeISO || $('dialog[open]')) return;
+  if (!Store.getTarefas().some(t => !t.concluida) && !Store.getAulas().length) return; // nada para resumir ainda
+  Store.marcarResumoVisto(hojeISO);
+  mostrarResumo();
+}
+
+/* ---------- 9.5 Compartilhar tarefa por link ----------
+   A tarefa vai dentro do próprio link (JSON em base64), sem servidor:
+   quem abre vê a prévia e adiciona no PrazoCerto dele. */
+const base64url = {
+  codificar: texto => { let bin = ''; new TextEncoder().encode(texto).forEach(b => { bin += String.fromCharCode(b); }); return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); },
+  decodificar: cod => { const bin = atob(cod.replace(/-/g, '+').replace(/_/g, '/')); return new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0))); }
+};
+const ESTIMATIVAS = [15, 30, 45, 60, 90, 120, 180, 300];
+
+function pacoteDoFormulario() {
+  const mat = infoMateria($('#t-materia').value);
+  return {
+    v: 1, t: $('#t-titulo').value.trim(), ti: $('#t-tipo').value, p: $('#t-prazo').value,
+    pr: $('input[name="prioridade"]:checked')?.value || 'media', e: Number($('#t-estimativa').value),
+    d: $('#t-descricao').value.trim(), s: estado.subtarefasEdicao.map(x => x.texto).slice(0, 30),
+    r: $('#t-repetir').value, m: { n: mat.nome, c: mat.cor }, de: Store.getConfig().nome
+  };
+}
+
+/** Lê e valida um pacote vindo de um link (dado de fora: nunca confiar). */
+function lerPacote(cod) {
+  const bruto = JSON.parse(base64url.decodificar(cod));
+  const txt = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+  const titulo = txt(bruto && bruto.t, 80);
+  if (!bruto || typeof bruto !== 'object' || titulo.length < 3) throw new Error('pacote inválido');
+  const prazo = typeof bruto.p === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(bruto.p) && !isNaN(new Date(bruto.p)) ? bruto.p : '';
+  const m = bruto.m && typeof bruto.m === 'object' ? bruto.m : {};
+  return {
+    titulo, prazo,
+    tipo: TIPOS.some(x => x.id === bruto.ti) ? bruto.ti : 'outro',
+    prioridade: PRIORIDADES.some(x => x.id === bruto.pr) ? bruto.pr : 'media',
+    estimativa: ESTIMATIVAS.includes(bruto.e) ? bruto.e : 60,
+    descricao: txt(bruto.d, 400),
+    subtarefas: (Array.isArray(bruto.s) ? bruto.s : []).map(x => txt(x, 80)).filter(Boolean).slice(0, 30),
+    repetir: prazo && REPETICOES.some(x => x.id && x.id === bruto.r) ? bruto.r : '',
+    materia: { nome: txt(m.n, 30) || 'Compartilhada', cor: /^#[0-9a-f]{6}$/i.test(m.c) ? m.c : CORES_MATERIA[0] },
+    de: txt(bruto.de, 20)
+  };
+}
+
+function previaHTML(d) {
+  const tipo = infoTipo(d.tipo), prio = infoPrioridade(d.prioridade);
+  const prazo = d.prazo ? `⏰ ${dataCurta(new Date(d.prazo))} às ${hora(new Date(d.prazo))}` : 'Sem prazo';
+  return `<h3>${tipo.emoji} ${esc(d.titulo)}</h3>
+    <p>${esc(d.materia.nome)} · ${prio.emoji} ${prio.label} · ${prazo}${d.repetir ? ` · 🔁 ${esc(infoRepeticao(d.repetir).curto)}` : ''}</p>
+    ${d.descricao ? `<p>${esc(d.descricao)}</p>` : ''}
+    ${d.subtarefas.length ? `<ul>${d.subtarefas.slice(0, 6).map(x => `<li>${esc(x)}</li>`).join('')}${d.subtarefas.length > 6 ? `<li>+ ${d.subtarefas.length - 6} etapa(s)</li>` : ''}</ul>` : ''}`;
+}
+
+let compartilhamento = { link: '', texto: '', titulo: '' };
+function abrirCompartilhar() {
+  const pacote = pacoteDoFormulario();
+  if (pacote.t.length < 3) { mostrarErroTitulo('Dê um nome para a tarefa antes de compartilhar.'); $('#t-titulo').focus(); return; }
+  const base = viaLink() ? `${location.origin}${location.pathname}` : 'https://prazocerto.github.io/';
+  const link = `${base}?tarefa=${base64url.codificar(JSON.stringify(pacote))}`;
+  const d = lerPacote(base64url.codificar(JSON.stringify(pacote)));
+  const prazoTxt = d.prazo ? `⏰ Entrega: ${dataCurta(new Date(d.prazo))} às ${hora(new Date(d.prazo))}\n` : '';
+  const texto = `📌 ${d.titulo} (${d.materia.nome})\n${prazoTxt}\nAdiciona no seu PrazoCerto com um toque:`;
+  compartilhamento = { link, texto, titulo: d.titulo };
+  $('#compartilhar-previa').innerHTML = previaHTML(d);
+  $('#btn-whats').href = `https://wa.me/?text=${encodeURIComponent(`${texto}\n${link}`)}`;
+  $('#btn-mais-opcoes').hidden = !navigator.share;
+  abrirModal('dlg-compartilhar');
+}
+
+async function copiarLinkCompartilhado() {
+  try { await navigator.clipboard.writeText(compartilhamento.link); toast('🔗 Link copiado! Cole no grupo da turma.'); }
+  catch (_) { prompt('Copie o link:', compartilhamento.link); }
+}
+
+async function compartilharNativo() {
+  try { await navigator.share({ title: `PrazoCerto: ${compartilhamento.titulo}`, text: compartilhamento.texto, url: compartilhamento.link }); }
+  catch (_) { /* a pessoa cancelou */ }
+}
+
+let tarefaRecebida = null;
+function verificarTarefaCompartilhada() {
+  const cod = new URLSearchParams(location.search).get('tarefa');
+  if (!cod) return;
+  history.replaceState(null, '', location.pathname + location.hash);
+  try { tarefaRecebida = lerPacote(cod); }
+  catch (_) { toast('Esse link de tarefa está incompleto. Peça para mandarem de novo.', { tipo: 'erro', duracao: 7000 }); return; }
+  const d = tarefaRecebida;
+  const repetida = Store.getTarefas().some(t => normalizar(t.titulo) === normalizar(d.titulo) && t.prazo === d.prazo);
+  $('#importar-sub').textContent = `${d.de ? `${d.de} compartilhou` : 'Compartilharam'} esta tarefa com você.${repetida ? ' Você já tem uma tarefa igual a essa.' : ''}`;
+  $('#importar-previa').innerHTML = previaHTML(d);
+  abrirModal('dlg-importar');
+}
+
+function importarTarefaCompartilhada() {
+  const d = tarefaRecebida;
+  if (!d) return;
+  let mat = Store.getMaterias().find(m => normalizar(m.nome) === normalizar(d.materia.nome));
+  if (!mat) { mat = Store.criarMateria(d.materia.nome, d.materia.cor); montarSelectMaterias(); }
+  const base = Date.now().toString(36);
+  const t = Store.salvarTarefa({
+    titulo: d.titulo, prazo: d.prazo, tipo: d.tipo, prioridade: d.prioridade, estimativa: d.estimativa,
+    descricao: d.descricao, materia: mat.id, repetir: d.repetir,
+    subtarefas: d.subtarefas.map((texto, i) => ({ id: `s-${base}-${i}`, texto, feita: false }))
+  });
+  pularLembretesPassados(t);
+  tarefaRecebida = null;
+  fecharModal($('#dlg-importar'));
+  toast(`✅ “${t.titulo}” adicionada às suas tarefas`, { acao: 'Ver', aoClicar: () => abrirFormTarefa(Store.getTarefa(t.id)) });
+  atualizarTudo();
+  verificarConquistas();
 }
 
 function aplicarTema(tema) {
@@ -1267,7 +2075,7 @@ function aoClicar(e) {
 
   if (alvo.hasAttribute('data-fechar')) return fecharModal(alvo.closest('dialog'));
   if (alvo.dataset.dia) { estado.diaSelecionado = alvo.dataset.dia; renderAgenda(); $(`[data-dia="${alvo.dataset.dia}"]`)?.focus(); return; }
-  if (alvo.hasAttribute('data-prazo')) { definirPrazoRapido(alvo.dataset.prazo); return; }
+  if (alvo.hasAttribute('data-prazo')) { definirPrazoRapido(alvo.dataset.prazo); atualizarDicaLembretes(); return; }
   if (alvo.hasAttribute('data-remover-sub')) { estado.subtarefasEdicao.splice(Number(alvo.dataset.removerSub), 1); renderSubtarefasEdicao(); return; }
 
   if (alvo.matches('a[href^="#"]') && !alvo.dataset.acao) {
@@ -1285,6 +2093,11 @@ function aoClicar(e) {
     case 'focar': focarEm(id); break;
     case 'sub': alternarSub(id, alvo.dataset.sub); break;
     case 'exemplo': carregarExemplo(); break;
+    case 'ligar-avisos': ligarAvisos(); break;
+    case 'nova-aula': abrirFormAula(); break;
+    case 'editar-aula': abrirFormAula(Store.getAulas().find(a => a.id === id)); break;
+    case 'resumo': mostrarResumo(); break;
+    case 'criar-plano': criarPlanoDireto(id); break;
     case 'excluir-materia': excluirMateria(id); break;
     case 'limpar-filtros':
       $('#busca').value = ''; $('#filtro-prioridade').value = ''; $('#filtro-materia').value = ''; $('#filtro-status').value = 'pendentes';
@@ -1299,6 +2112,7 @@ function definirPrazoRapido(tipo) {
 }
 
 function aoPressionarTecla(e) {
+  if (e.key === 'Escape' && alarme.ativo) { pararAlarme(); if (!$('dialog[open]')) return; }
   const el = document.activeElement;
   const digitando = /INPUT|TEXTAREA|SELECT/.test(el.tagName) || el.isContentEditable;
   if (digitando || e.ctrlKey || e.metaKey || e.altKey || $('dialog[open]')) return;
@@ -1381,8 +2195,51 @@ function registrarEventos() {
   $('#input-importar').addEventListener('change', e => { if (e.target.files[0]) importarBackup(e.target.files[0]); e.target.value = ''; });
   $('#btn-apagar-tudo').addEventListener('click', apagarTudo);
   $('#cfg-aviso').addEventListener('change', aoMudarAviso);
-  $('#cfg-aviso-min').addEventListener('change', aoMudarAviso);
   $('#btn-testar-aviso').addEventListener('click', testarAviso);
+  $('#btn-permitir-aviso').addEventListener('click', async () => { await pedirPermissao(); atualizarStatusAviso(); if (suportaNotificacao() && Notification.permission === 'granted') testarAviso(); });
+  $('#btn-cal-todas').addEventListener('click', exportarTodosCalendario);
+  $('#btn-ouvir-toque').addEventListener('click', () => tocarAlarme('▶ Ouvindo o toque', { som: somDoFormulario(), umaVez: true }));
+  $('#cfg-volume').addEventListener('input', e => { $('#cfg-volume-valor').textContent = `${e.target.value}%`; });
+  $('#btn-parar-alarme').addEventListener('click', pararAlarme);
+  $('#dlg-config').addEventListener('close', pararAlarme);
+  // fechou uma janela com o alarme tocando: a barra volta para a página (ou para a janela de baixo)
+  $$('dialog').forEach(d => d.addEventListener('close', () => { if (alarme.ativo) posicionarBarraAlarme(); }));
+
+  // Novidades: aulas, modo prova, resumo e compartilhar
+  $('#form-aula').addEventListener('submit', salvarFormAula);
+  $('#btn-excluir-aula').addEventListener('click', excluirAula);
+  $('#t-tipo').addEventListener('change', atualizarModoProva);
+  $('#t-prazo').addEventListener('input', atualizarModoProva);
+  $('#btn-plano-revisao').addEventListener('click', criarPlanoNoFormulario);
+  $('#btn-compartilhar-tarefa').addEventListener('click', abrirCompartilhar);
+  $('#btn-copiar-link').addEventListener('click', copiarLinkCompartilhado);
+  $('#btn-mais-opcoes').addEventListener('click', compartilharNativo);
+  $('#btn-importar-tarefa').addEventListener('click', importarTarefaCompartilhada);
+  $('#resumo-todo-dia').addEventListener('change', e => {
+    Store.salvarConfig({ resumoDiario: e.target.checked });
+    toast(e.target.checked ? '📋 O resumo vai aparecer todo dia' : 'Resumo diário desligado. Ele continua no botão “📋 Resumo do dia”.');
+  });
+
+  // Lembretes no formulário da tarefa
+  $('#t-lembretes').addEventListener('change', atualizarDicaLembretes);
+  $('#t-prazo').addEventListener('input', atualizarDicaLembretes);
+  $('#btn-cal-google').addEventListener('click', calendarioGoogle);
+  $('#btn-cal-ics').addEventListener('click', calendarioIcs);
+
+  // Som: o navegador só libera o áudio depois de uma interação
+  document.addEventListener('pointerdown', preparaSom, { passive: true });
+  // Ao voltar para a aba/app, confere na hora o timer e os lembretes
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (timer.rodando) tique();
+    verificarAvisos();
+  });
+  // Clique numa notificação com o app já aberto: o service worker avisa qual tarefa abrir
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', e => {
+      if (e.data && e.data.tipo === 'notificacao' && e.data.tarefaId) abrirTarefaPorId(e.data.tarefaId);
+    });
+  }
 
   // Modais: fechar clicando fora e devolver o foco
   $$('dialog').forEach(dlg => {
@@ -1461,6 +2318,16 @@ function iniciar() {
   etapaSegura('tela inicial', () => mostrarView(location.hash.slice(1), false));
   etapaSegura('telas', atualizarTudo);
   etapaSegura('instalação', prepararInstalacao);
+  etapaSegura('lembretes', () => { Store.limparAvisos(); agendarProximoAviso(); });
+  etapaSegura('notificação clicada', () => {
+    const params = new URLSearchParams(location.search);
+    const id = params.get('abrir');
+    if (!id) return;
+    history.replaceState(null, '', location.pathname + location.hash);
+    abrirTarefaPorId(id);
+  });
+  etapaSegura('tarefa compartilhada', verificarTarefaCompartilhada);
+  etapaSegura('resumo do dia', mostrarResumoSeNovoDia);
 }
 
 document.addEventListener('DOMContentLoaded', iniciar);

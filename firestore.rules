@@ -1,0 +1,21 @@
+rules_version = '2';
+
+// Regras do Firestore do PrazoCerto
+// Cada pessoa só pode ler e gravar o PRÓPRIO documento (usuarios/{uid}).
+// O documento guarda as tarefas como texto JSON (campo "json").
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /usuarios/{uid} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['json', 'atualizadoEm', 'aparelho', 'versao'])
+        && request.resource.data.json is string
+        && request.resource.data.json.size() < 900000
+        && request.resource.data.aparelho is string;
+    }
+    // qualquer outro caminho: bloqueado
+    match /{documento=**} {
+      allow read, write: if false;
+    }
+  }
+}

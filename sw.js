@@ -4,9 +4,10 @@
  * - Na instalação, guarda no aparelho todos os arquivos do app.
  * - Com internet: busca sempre a versão mais nova (e atualiza a cópia).
  * - Sem internet: usa a cópia guardada, então o app abre normalmente.
+ * - Clique numa notificação de lembrete: abre o app na tarefa.
  * Os dados do aluno continuam no LocalStorage; aqui ficam só os arquivos.
  * ========================================================= */
-const VERSAO = 'prazocerto-v1';
+const VERSAO = 'prazocerto-v4';
 const ARQUIVOS = [
   './',
   './index.html',
@@ -15,6 +16,7 @@ const ARQUIVOS = [
   './js/data.js',
   './js/storage.js',
   './js/app.js',
+  './js/nuvem.js',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
   './assets/icons/icon-maskable-192.png',
@@ -51,5 +53,22 @@ self.addEventListener('fetch', evento => {
       })
       .catch(() => caches.match(req, { ignoreSearch: true })
         .then(r => r || (req.mode === 'navigate' ? caches.match('./index.html') : undefined)))
+  );
+});
+
+// Clique na notificação: volta para o app (ou abre) já na tarefa do lembrete
+self.addEventListener('notificationclick', evento => {
+  evento.notification.close();
+  const dados = evento.notification.data || {};
+  const escopo = new URL(self.registration.scope).pathname;
+  evento.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(janelas => {
+      const aberta = janelas.find(j => new URL(j.url).pathname.startsWith(escopo));
+      if (aberta) {
+        if (dados.tarefaId) aberta.postMessage({ tipo: 'notificacao', tarefaId: dados.tarefaId });
+        return aberta.focus();
+      }
+      return self.clients.openWindow(dados.url || './');
+    })
   );
 });
