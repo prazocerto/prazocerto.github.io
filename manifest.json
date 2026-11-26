@@ -1,0 +1,31 @@
+{
+  "id": "./",
+  "name": "PrazoCerto — Gestão de Tempo para Estudantes",
+  "short_name": "PrazoCerto",
+  "description": "Tarefas, prazos, agenda e Pomodoro para estudantes, com cores de urgência, avisos e conquistas. Funciona sem internet.",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "start_url": "./#hoje",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#f4f6fb",
+  "theme_color": "#4f46e5",
+  "categories": ["education", "productivity"],
+  "icons": [
+    { "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "assets/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "screenshots": [
+    { "src": "assets/screenshots/tela-computador.jpg", "sizes": "2049x1290", "type": "image/jpeg", "form_factor": "wide", "label": "Tela Hoje no computador: contagem regressiva do próximo prazo, nível e tarefas do dia" },
+    { "src": "assets/screenshots/tela-celular.jpg", "sizes": "390x819", "type": "image/jpeg", "form_factor": "narrow", "label": "Tela Hoje no celular" }
+  ],
+  "shortcuts": [
+    { "name": "Tarefas", "short_name": "Tarefas", "description": "Ver todas as tarefas", "url": "./#tarefas", "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Agenda", "short_name": "Agenda", "description": "Ver os prazos do mês", "url": "./#agenda", "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Modo foco", "short_name": "Foco", "description": "Começar um Pomodoro", "url": "./#foco", "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

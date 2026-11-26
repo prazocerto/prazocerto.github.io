@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="PrazoCerto — agenda, tarefas, prazos e Pomodoro para estudantes universitários.">
+  <meta name="theme-color" content="#4f46e5">
+  <title>PrazoCerto — Gestão de Tempo para Estudantes</title>
+
+  <!-- Prévia do link (WhatsApp, Instagram, Telegram, Discord, Facebook, X/Twitter, LinkedIn) -->
+  <link rel="canonical" href="https://joaofortesrabelo-ctrl.github.io/PrazoCerto/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="PrazoCerto">
+  <meta property="og:locale" content="pt_BR">
+  <meta property="og:url" content="https://joaofortesrabelo-ctrl.github.io/PrazoCerto/">
+  <meta property="og:title" content="⏰ PrazoCerto — Organize seus prazos da faculdade">
+  <meta property="og:description" content="Tarefas, prazos e agenda com cores de urgência, Pomodoro e conquistas. Grátis, instalável e funciona sem internet.">
+  <meta property="og:image" content="https://joaofortesrabelo-ctrl.github.io/PrazoCerto/assets/og-imagem.jpg">
+  <meta property="og:image:secure_url" content="https://joaofortesrabelo-ctrl.github.io/PrazoCerto/assets/og-imagem.jpg">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Logo do PrazoCerto com o despertador e cartões de tarefas coloridos por urgência">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="⏰ PrazoCerto — Organize seus prazos da faculdade">
+  <meta name="twitter:description" content="Tarefas, prazos e agenda com cores de urgência, Pomodoro e conquistas. Grátis, instalável e funciona sem internet.">
+  <meta name="twitter:image" content="https://joaofortesrabelo-ctrl.github.io/PrazoCerto/assets/og-imagem.jpg">
+  <meta name="twitter:image:alt" content="Logo do PrazoCerto com o despertador e cartões de tarefas coloridos por urgência">
+  <link rel="icon" href="assets/icons/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="icon" href="assets/icons/icon-192.png" type="image/png" sizes="192x192">
+
+  <!-- App instalável (PWA): manifesto, ícone do iPhone e cor da barra -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="PrazoCerto">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+  <!-- Aplica o tema salvo antes de desenhar a página (evita "piscar") -->
+  <script>
+    (function () {
+      var tema = null;
+      try { tema = JSON.parse(localStorage.getItem('prazocerto:tema')); } catch (e) {}
+      if (!tema) tema = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', tema);
+    })();
+  </script>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Aviso que só aparece se o style.css não carregar (ex.: index.html aberto de dentro do .zip). O style.css esconde este bloco. -->
+  <div class="aviso-arquivos" role="alert" style="margin:16px;padding:16px 20px;border:3px solid #b45309;border-radius:12px;background:#fffbeb;color:#1f2937;font:16px/1.5 system-ui,sans-serif">
+    <strong style="font-size:18px">⚠️ Os arquivos do PrazoCerto não foram encontrados.</strong><br>
+    Provavelmente o <code>index.html</code> foi aberto de dentro do arquivo .zip. Para funcionar:
+    <ol style="margin:8px 0 0">
+      <li>Feche esta página.</li>
+      <li>Clique com o botão direito no <b>PrazoCerto.zip</b> e escolha <b>Extrair tudo…</b></li>
+      <li>Abra a pasta extraída <b>prazocerto</b> e dê dois cliques no <b>index.html</b>.</li>
+    </ol>
+  </div>
+  <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+
+  <!-- ================= CABEÇALHO ================= -->
+  <header class="topbar">
+    <div class="topbar__inner">
+      <a class="brand" href="#hoje" aria-label="PrazoCerto — início">
+        <span class="brand__logo" aria-hidden="true">⏰</span>
+        <span class="brand__name">Prazo<strong>Certo</strong></span>
+      </a>
+
+      <nav class="nav" aria-label="Navegação principal">
+        <ul class="nav__list">
+          <li><a class="nav__link" href="#hoje" data-view="hoje"><span aria-hidden="true">🏠</span><span>Hoje</span></a></li>
+          <li><a class="nav__link" href="#tarefas" data-view="tarefas"><span aria-hidden="true">✅</span><span>Tarefas</span><span class="badge" id="badge-atrasadas" hidden title="Tarefas atrasadas">0</span></a></li>
+          <li><a class="nav__link" href="#agenda" data-view="agenda"><span aria-hidden="true">📅</span><span>Agenda</span></a></li>
+          <li><a class="nav__link" href="#foco" data-view="foco"><span aria-hidden="true">🍅</span><span>Foco</span></a></li>
+          <li><a class="nav__link" href="#progresso" data-view="progresso"><span aria-hidden="true">📊</span><span>Progresso</span></a></li>
+        </ul>
+      </nav>
+
+      <div class="topbar__actions">
+        <a class="timer-pill" id="timer-pill" href="#foco" hidden aria-label="Pomodoro em andamento — abrir Foco">🍅 <span id="timer-pill-tempo">25:00</span></a>
+        <button type="button" class="btn-icon btn-instalar" id="btn-instalar" hidden title="Instalar o PrazoCerto como app"><span aria-hidden="true">📲</span><span class="btn-instalar__texto">Instalar app</span></button>
+        <button type="button" class="btn-icon" id="btn-config" aria-haspopup="dialog" aria-label="Configurações" title="Configurações">⚙️</button>
+        <button type="button" class="btn-icon" id="btn-ajuda" aria-haspopup="dialog" aria-label="Ajuda e atalhos" title="Ajuda (?)"><span class="btn-ajuda__q" aria-hidden="true">?</span></button>
+        <button type="button" class="btn-icon btn-tema" id="btn-tema" aria-pressed="false" title="Alternar tema (T)">
+          <span class="btn-tema__icone" aria-hidden="true">🌙</span>
+          <span class="btn-tema__texto" lang="en">Dark Mode</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="conteudo" tabindex="-1">
+
+    <!-- ================= HOJE ================= -->
+    <section class="view" id="view-hoje" aria-labelledby="titulo-hoje">
+      <div class="hoje-topo">
+        <div>
+          <p class="eyebrow" id="hoje-data"></p>
+          <h1 id="titulo-hoje">Olá!</h1>
+          <p class="sub" id="hoje-frase"></p>
+        </div>
+        <button type="button" class="btn btn--primary btn--lg" data-acao="nova-tarefa">＋ Nova tarefa</button>
+      </div>
+
+      <form class="card quick-add" id="form-rapido" autocomplete="off">
+        <label for="rapido" class="sr-only">Adicionar tarefa rápida</label>
+        <span class="quick-add__icon" aria-hidden="true">⚡</span>
+        <input type="text" id="rapido" class="input" maxlength="120"
+               placeholder="Ex.: Prova de BD sex 19h !alta" aria-describedby="rapido-dica">
+        <button type="submit" class="btn btn--primary">Adicionar</button>
+        <p class="quick-add__dica" id="rapido-dica">Entende <b>hoje</b>, <b>amanhã</b>, dias da semana (<b>sex</b>), datas (<b>25/11</b>), horas (<b>19h</b>, <b>23:59</b>), <b>!alta</b> / <b>!baixa</b> e <b>#matéria</b>.</p>
+      </form>
+
+      <div class="hoje-grid">
+        <section class="card destaque" id="proximo-prazo" aria-labelledby="titulo-proximo">
+          <h2 id="titulo-proximo" class="card__title">⏳ Próximo prazo</h2>
+          <div id="proximo-conteudo"></div>
+        </section>
+
+        <section class="card nivel-card" aria-labelledby="titulo-nivel">
+          <h2 id="titulo-nivel" class="card__title">🎮 Seu nível</h2>
+          <div id="nivel-conteudo"></div>
+        </section>
+      </div>
+
+      <div class="kpis" id="hoje-kpis"></div>
+
+      <div id="hoje-listas"></div>
+    </section>
+
+    <!-- ================= TAREFAS ================= -->
+    <section class="view" id="view-tarefas" aria-labelledby="titulo-tarefas" hidden>
+      <div class="section-head">
+        <div>
+          <h1 id="titulo-tarefas">Minhas tarefas</h1>
+          <p class="sub" id="sub-tarefas"></p>
+        </div>
+        <button type="button" class="btn btn--primary" data-acao="nova-tarefa">＋ Nova tarefa</button>
+      </div>
+
+      <form class="card toolbar" id="form-filtros" role="search" onsubmit="return false">
+        <div class="toolbar__search">
+          <label for="busca" class="sr-only">Buscar tarefas</label>
+          <span class="toolbar__search-icon" aria-hidden="true">🔍</span>
+          <input type="search" id="busca" class="input" placeholder="Buscar por título ou descrição…" autocomplete="off">
+        </div>
+        <div class="toolbar__filters">
+          <label class="sr-only" for="filtro-status">Status</label>
+          <select id="filtro-status" class="select">
+            <option value="pendentes">⏳ Pendentes</option>
+            <option value="concluidas">✅ Concluídas</option>
+            <option value="todas">📋 Todas</option>
+          </select>
+          <label class="sr-only" for="filtro-prioridade">Prioridade</label>
+          <select id="filtro-prioridade" class="select"><option value="">Todas as prioridades</option></select>
+          <label class="sr-only" for="filtro-materia">Matéria</label>
+          <select id="filtro-materia" class="select"><option value="">Todas as matérias</option></select>
+          <label class="sr-only" for="ordem">Ordenar por</label>
+          <select id="ordem" class="select">
+            <option value="prazo">Ordenar: prazo</option>
+            <option value="prioridade">Ordenar: prioridade</option>
+            <option value="criacao">Ordenar: mais novas</option>
+          </select>
+        </div>
+      </form>
+
+      <div id="lista-tarefas"></div>
+      <div class="rodape-lista">
+        <button type="button" class="btn btn--danger-ghost btn--sm" id="btn-limpar-concluidas" hidden>🧹 Apagar tarefas concluídas</button>
+      </div>
+    </section>
+
+    <!-- ================= AGENDA ================= -->
+    <section class="view" id="view-agenda" aria-labelledby="titulo-agenda" hidden>
+      <div class="section-head">
+        <div>
+          <h1 id="titulo-agenda">Agenda</h1>
+          <p class="sub">Veja os prazos do mês. Toque em um dia para ver as tarefas.</p>
+        </div>
+      </div>
+
+      <div class="agenda">
+        <section class="card calendario" aria-labelledby="mes-titulo">
+          <div class="calendario__head">
+            <button type="button" class="btn-icon" id="mes-anterior" aria-label="Mês anterior">‹</button>
+            <h2 id="mes-titulo" aria-live="polite">Mês</h2>
+            <button type="button" class="btn-icon" id="mes-proximo" aria-label="Próximo mês">›</button>
+            <button type="button" class="btn btn--ghost btn--sm" id="mes-hoje">Hoje</button>
+          </div>
+          <div class="calendario__semana" aria-hidden="true">
+            <span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span>
+          </div>
+          <div class="calendario__dias" id="calendario-dias" aria-label="Dias do mês (use as setas para navegar)"></div>
+          <div class="legenda-prioridade" aria-hidden="true">
+            <span><i style="background:#ef4444"></i>Alta</span><span><i style="background:#f59e0b"></i>Média</span><span><i style="background:#22c55e"></i>Baixa</span>
+          </div>
+        </section>
+
+        <section class="card dia-painel" aria-labelledby="dia-titulo">
+          <h2 id="dia-titulo">Dia</h2>
+          <p class="sub" id="dia-resumo"></p>
+          <div id="dia-lista"></div>
+          <button type="button" class="btn btn--ghost" id="btn-nova-no-dia">＋ Nova tarefa neste dia</button>
+        </section>
+      </div>
+    </section>
+
+    <!-- ================= FOCO (POMODORO) ================= -->
+    <section class="view" id="view-foco" aria-labelledby="titulo-foco" hidden>
+      <div class="section-head">
+        <div>
+          <h1 id="titulo-foco">Modo foco</h1>
+          <p class="sub">Técnica Pomodoro: foque sem distrações e faça pausas curtas. A cada 4 ciclos, uma pausa longa.</p>
+        </div>
+      </div>
+
+      <div class="foco">
+        <section class="card timer" aria-label="Timer Pomodoro">
+          <div class="segmented" role="radiogroup" aria-label="Modo do timer" id="modos">
+            <label class="segmented__opt"><input type="radio" name="modo" value="foco" checked><span>🍅 Foco</span></label>
+            <label class="segmented__opt"><input type="radio" name="modo" value="curta"><span>☕ Pausa curta</span></label>
+            <label class="segmented__opt"><input type="radio" name="modo" value="longa"><span>🛋️ Pausa longa</span></label>
+          </div>
+
+          <div class="anel" id="anel">
+            <svg viewBox="0 0 260 260" aria-hidden="true">
+              <circle class="anel__trilho" cx="130" cy="130" r="116"></circle>
+              <circle class="anel__progresso" id="anel-progresso" cx="130" cy="130" r="116"></circle>
+            </svg>
+            <div class="anel__centro">
+              <span class="anel__tempo" id="timer-tempo" role="timer" aria-live="off">25:00</span>
+              <span class="anel__modo" id="timer-modo">Hora de focar</span>
+            </div>
+          </div>
+
+          <div class="timer__tarefa">
+            <label for="timer-tarefa" class="field__label">Focar em qual tarefa?</label>
+            <select id="timer-tarefa" class="select"><option value="">Sem tarefa específica</option></select>
+          </div>
+
+          <div class="timer__botoes">
+            <button type="button" class="btn btn--ghost" id="timer-reiniciar" aria-label="Reiniciar timer">↺ Reiniciar</button>
+            <button type="button" class="btn btn--primary btn--lg btn--play" id="timer-iniciar">▶ Iniciar</button>
+            <button type="button" class="btn btn--ghost" id="timer-pular" aria-label="Pular para a próxima etapa">⏭ Pular</button>
+          </div>
+          <p class="timer__status" id="timer-status" aria-live="polite"></p>
+        </section>
+
+        <section class="card foco-hoje" aria-labelledby="titulo-foco-hoje">
+          <h2 id="titulo-foco-hoje" class="card__title">🍅 Foco de hoje</h2>
+          <div id="foco-hoje-conteudo"></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ================= PROGRESSO ================= -->
+    <section class="view" id="view-progresso" aria-labelledby="titulo-progresso" hidden>
+      <div class="section-head">
+        <div>
+          <h1 id="titulo-progresso">Seu progresso</h1>
+          <p class="sub">Estatísticas, nível e conquistas calculados a partir das suas tarefas e sessões de foco.</p>
+        </div>
+      </div>
+      <div id="progresso-conteudo"></div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>PrazoCerto · Projeto de TI (Vibe Coding) · HTML5, CSS3 e JavaScript puro · Seus dados ficam só neste navegador (LocalStorage)</p>
+  </footer>
+
+  <!-- ================= DIÁLOGOS ================= -->
+  <dialog class="modal modal--tarefa" id="dlg-tarefa" aria-labelledby="tarefa-titulo-modal">
+    <form class="modal__body" id="form-tarefa" novalidate>
+      <button type="button" class="modal__close" data-fechar aria-label="Fechar">✕</button>
+      <h2 id="tarefa-titulo-modal">Nova tarefa</h2>
+      <input type="hidden" id="t-id">
+
+      <div class="campo">
+        <label for="t-titulo" class="field__label">Título <span class="req" aria-hidden="true">*</span></label>
+        <input type="text" id="t-titulo" class="input" maxlength="80" required placeholder="Ex.: Prova de Banco de Dados" aria-describedby="erro-titulo">
+        <p class="erro" id="erro-titulo" role="alert" hidden></p>
+      </div>
+
+      <div class="campos-2">
+        <div class="campo">
+          <label for="t-materia" class="field__label">Matéria <span class="req" aria-hidden="true">*</span></label>
+          <select id="t-materia" class="select" required></select>
+        </div>
+        <div class="campo">
+          <label for="t-tipo" class="field__label">Tipo</label>
+          <select id="t-tipo" class="select"></select>
+        </div>
+      </div>
+
+      <fieldset class="campo">
+        <legend class="field__label">Prioridade</legend>
+        <div class="prioridades" id="t-prioridades"></div>
+      </fieldset>
+
+      <div class="campos-2">
+        <div class="campo">
+          <label for="t-prazo" class="field__label">Prazo de entrega</label>
+          <input type="datetime-local" id="t-prazo" class="input" aria-describedby="prazo-dica">
+          <div class="atalhos-data" id="prazo-dica">
+            <button type="button" class="chip-btn" data-prazo="hoje">Hoje</button>
+            <button type="button" class="chip-btn" data-prazo="amanha">Amanhã</button>
+            <button type="button" class="chip-btn" data-prazo="semana">+7 dias</button>
+            <button type="button" class="chip-btn" data-prazo="">Sem prazo</button>
+          </div>
+        </div>
+        <div class="campo">
+          <label for="t-estimativa" class="field__label">Tempo estimado</label>
+          <select id="t-estimativa" class="select">
+            <option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option>
+            <option value="60" selected>1 hora</option><option value="90">1h30</option><option value="120">2 horas</option>
+            <option value="180">3 horas</option><option value="300">5 horas</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="campo">
+        <label for="t-descricao" class="field__label">Anotações</label>
+        <textarea id="t-descricao" class="input" rows="2" maxlength="400" placeholder="Conteúdo, links, materiais…"></textarea>
+      </div>
+
+      <fieldset class="campo">
+        <legend class="field__label">Etapas (checklist)</legend>
+        <ul class="subtarefas" id="t-subtarefas"></ul>
+        <div class="sub-add">
+          <label for="t-nova-sub" class="sr-only">Nova etapa</label>
+          <input type="text" id="t-nova-sub" class="input" maxlength="80" placeholder="Adicionar etapa e apertar Enter">
+          <button type="button" class="btn btn--ghost btn--sm" id="btn-add-sub">＋</button>
+        </div>
+      </fieldset>
+
+      <div class="modal__actions modal__actions--split">
+        <button type="button" class="btn btn--danger-ghost" id="btn-excluir-tarefa" hidden>🗑️ Excluir</button>
+        <div>
+          <button type="button" class="btn btn--text" data-fechar>Cancelar</button>
+          <button type="submit" class="btn btn--primary">Salvar tarefa</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="dlg-config" aria-labelledby="config-titulo">
+    <div class="modal__body">
+      <button type="button" class="modal__close" data-fechar aria-label="Fechar">✕</button>
+      <h2 id="config-titulo">⚙️ Configurações</h2>
+
+      <form id="form-config" class="config-sec">
+        <h3>Você</h3>
+        <label for="cfg-nome" class="field__label">Seu nome (para a saudação)</label>
+        <input type="text" id="cfg-nome" class="input" maxlength="20" placeholder="Ex.: João">
+
+        <h3>Pomodoro (minutos)</h3>
+        <div class="campos-3">
+          <div><label for="cfg-foco" class="field__label">Foco</label><input type="number" id="cfg-foco" class="input" min="5" max="90" step="5"></div>
+          <div><label for="cfg-curta" class="field__label">Pausa curta</label><input type="number" id="cfg-curta" class="input" min="1" max="30"></div>
+          <div><label for="cfg-longa" class="field__label">Pausa longa</label><input type="number" id="cfg-longa" class="input" min="5" max="60" step="5"></div>
+        </div>
+        <label class="switch"><input type="checkbox" id="cfg-som"><span>🔔 Tocar som ao terminar um ciclo</span></label>
+        <label class="switch"><input type="checkbox" id="cfg-atalhos" aria-describedby="atalhos-dica"><span>⌨️ Atalhos de teclado de uma tecla (N, T, 1–5, /, ?)</span></label>
+        <p class="field__hint" id="atalhos-dica">Desligue se você usa leitor de tela ou comandos de voz e as teclas sozinhas atrapalham.</p>
+
+        <h3>Avisos de prazo</h3>
+        <label class="switch"><input type="checkbox" id="cfg-aviso" aria-describedby="aviso-status"><span>⏰ Notificar antes de um prazo vencer</span></label>
+        <div class="campo-aviso">
+          <label for="cfg-aviso-min" class="field__label">Avisar com antecedência de</label>
+          <select id="cfg-aviso-min" class="select">
+            <option value="15">15 minutos</option><option value="30">30 minutos</option>
+            <option value="60" selected>1 hora</option><option value="120">2 horas</option><option value="1440">1 dia</option>
+          </select>
+        </div>
+        <p class="aviso-status" id="aviso-status" aria-live="polite"></p>
+        <button type="button" class="btn btn--ghost btn--sm" id="btn-testar-aviso">🔔 Testar notificação</button>
+        <p class="erro" id="erro-config" role="alert" hidden></p>
+        <button type="submit" class="btn btn--primary">Salvar configurações</button>
+      </form>
+
+      <section class="config-sec" aria-labelledby="materias-titulo">
+        <h3 id="materias-titulo">Matérias</h3>
+        <ul class="materias" id="lista-materias"></ul>
+        <form class="materia-add" id="form-materia">
+          <label for="nova-materia" class="sr-only">Nome da nova matéria</label>
+          <input type="text" id="nova-materia" class="input" maxlength="30" placeholder="Nova matéria">
+          <label for="cor-materia" class="sr-only">Cor</label>
+          <input type="color" id="cor-materia" class="cor" value="#6366f1">
+          <button type="submit" class="btn btn--ghost btn--sm">Adicionar</button>
+        </form>
+      </section>
+
+      <section class="config-sec" aria-labelledby="dados-titulo">
+        <h3 id="dados-titulo">Seus dados</h3>
+        <div class="botoes-linha">
+          <button type="button" class="btn btn--ghost btn--sm" id="btn-exportar">⬇️ Baixar backup</button>
+          <label class="btn btn--ghost btn--sm">⬆️ Restaurar backup<input type="file" id="input-importar" accept="application/json,.json" class="sr-only"></label>
+          <button type="button" class="btn btn--ghost btn--sm" data-acao="exemplo">🧪 Carregar exemplo</button>
+          <button type="button" class="btn btn--danger-ghost btn--sm" id="btn-apagar-tudo">🗑️ Apagar tudo</button>
+        </div>
+      </section>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="dlg-ajuda" aria-labelledby="ajuda-titulo">
+    <div class="modal__body">
+      <button type="button" class="modal__close" data-fechar aria-label="Fechar">✕</button>
+      <h2 id="ajuda-titulo">Como usar o PrazoCerto</h2>
+      <ol class="ajuda-passos">
+        <li><strong>Cadastre suas tarefas</strong> com matéria, prioridade e prazo — ou use a tarefa rápida da tela Hoje.</li>
+        <li><strong>As cores mostram a urgência:</strong> 🔴 atrasada, 🟠 vence em menos de 24h, 🟡 em até 3 dias.</li>
+        <li><strong>Marque ✓ quando terminar</strong> e ganhe XP. Errou? Use <em>Desfazer</em>.</li>
+        <li><strong>Use o Foco</strong> (Pomodoro) para estudar em blocos de 25 minutos.</li>
+        <li><strong>Acompanhe o Progresso:</strong> nível, sequência de dias e conquistas.</li>
+        <li><strong>Ative os avisos</strong> em ⚙️ Configurações: o navegador te avisa 1 hora antes de cada prazo (dá para mudar a antecedência).</li>
+      </ol>
+      <h3 id="ajuda-instalar">Instalar como app</h3>
+      <p class="modal__sub" style="margin-top:0">O PrazoCerto pode ser instalado e aberto como um app, com ícone próprio e <strong>funcionando sem internet</strong>. Suas tarefas continuam salvas no aparelho.</p>
+      <ul class="ajuda-instalar">
+        <li><strong>Computador (Chrome ou Edge):</strong> clique em <em>📲 Instalar app</em> no topo, ou no ícone de instalar na barra de endereço.</li>
+        <li><strong>Android (Chrome):</strong> toque em <em>📲 Instalar app</em>, ou no menu ⋮ → <em>Instalar app</em> / <em>Adicionar à tela inicial</em>.</li>
+        <li><strong>iPhone (Safari):</strong> toque em Compartilhar <span aria-hidden="true">⬆️</span> → <em>Adicionar à Tela de Início</em>.</li>
+      </ul>
+      <h3>Atalhos de teclado</h3>
+      <dl class="atalhos">
+        <div><dt><kbd>N</kbd></dt><dd>Nova tarefa</dd></div>
+        <div><dt><kbd>1</kbd>–<kbd>5</kbd></dt><dd>Hoje, Tarefas, Agenda, Foco e Progresso</dd></div>
+        <div><dt><kbd>/</kbd></dt><dd>Buscar tarefas</dd></div>
+        <div><dt><kbd>Espaço</kbd></dt><dd>Iniciar/pausar o Pomodoro (na tela Foco)</dd></div>
+        <div><dt><kbd>T</kbd></dt><dd>Alternar tema claro/escuro</dd></div>
+        <div><dt><kbd>?</kbd></dt><dd>Abrir esta ajuda</dd></div>
+        <div><dt><kbd>Esc</kbd></dt><dd>Fechar janelas</dd></div>
+      </dl>
+      <p class="modal__sub">Os atalhos de uma tecla podem ser desligados em ⚙️ Configurações. As notificações ficam paradas enquanto o mouse ou o foco do teclado estiver sobre elas.</p>
+      <div class="modal__actions"><button type="button" class="btn btn--primary" data-fechar>Entendi</button></div>
+    </div>
+  </dialog>
+
+  <dialog class="modal modal--confirmar" id="dlg-confirmar" aria-labelledby="confirmar-titulo" aria-describedby="confirmar-texto">
+    <div class="modal__body">
+      <h2 id="confirmar-titulo">Tem certeza?</h2>
+      <p id="confirmar-texto"></p>
+      <div class="modal__actions">
+        <button type="button" class="btn btn--ghost" id="confirmar-nao">Cancelar</button>
+        <button type="button" class="btn btn--danger" id="confirmar-sim">Confirmar</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+  <div class="confete" id="confete" aria-hidden="true"></div>
+
+  <!-- Scripts: dados → persistência → aplicação -->
+  <script src="js/data.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
