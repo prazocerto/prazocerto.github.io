@@ -34,7 +34,7 @@ const Store = (() => {
   }
 
   /* Sincronização com a nuvem: quem quiser é avisado quando um dado sincronizado muda */
-  const SINCRONIZADAS = ['tarefas', 'materias', 'sessoes', 'aulas', 'conquistas', 'config'];
+  const SINCRONIZADAS = ['tarefas', 'materias', 'sessoes', 'aulas', 'conquistas', 'config', 'estudo'];
   const ouvintes = [];
   let silencio = false; // true enquanto aplica dados que vieram da nuvem (não reenviar)
 
@@ -193,6 +193,12 @@ const Store = (() => {
     if ('repetir' in limpo && ![0, 1, 3, 5].includes(limpo.repetir)) delete limpo.repetir;
     if ('volume' in limpo) limpo.volume = Math.min(100, Math.max(0, limpo.volume || 0));
     ['estudoInicio', 'estudoFim'].forEach(k => { if (k in limpo && !horaOk(limpo[k])) delete limpo[k]; });
+    ['semestreInicio', 'semestreFim'].forEach(k => { if (k in limpo && limpo[k] !== '' && !diaOk(limpo[k])) delete limpo[k]; });
+    if ('mediaAprovacao' in limpo && !numOk(limpo.mediaAprovacao, 0, 10)) delete limpo.mediaAprovacao;
+    if ('metaFocoMin' in limpo && !numOk(limpo.metaFocoMin, 0, 10000)) delete limpo.metaFocoMin;
+    if ('metaTarefas' in limpo && !numOk(limpo.metaTarefas, 0, 500)) delete limpo.metaTarefas;
+    if ('somFundo' in limpo && !SONS_FUNDO.some(x => x.id === limpo.somFundo)) delete limpo.somFundo;
+    if ('volumeFundo' in limpo) limpo.volumeFundo = Math.min(100, Math.max(0, limpo.volumeFundo || 0));
     if (limpo.estudoInicio && limpo.estudoFim && limpo.estudoInicio >= limpo.estudoFim) { delete limpo.estudoInicio; delete limpo.estudoFim; }
     return { ...CONFIG_PADRAO, ...limpo };
   }
@@ -247,12 +253,51 @@ const Store = (() => {
   }
   function removerAula(id) { gravar('aulas', getAulas().filter(a => a.id !== id)); }
 
+  /* ---------- Estudo por matéria: notas, faltas, anotações e flashcards ----------
+     { [idMateria]: { avaliacoes:[{id,nome,peso,nota|null}], faltas:['AAAA-MM-DD'], limiteFaltas:null|n,
+                      media:null|n, anotacoes:'', flashcards:[{id,frente,verso,caixa,proxima,acertos,erros}] } } */
+  const diaOk = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const numOk = (v, min, max) => typeof v === 'number' && isFinite(v) && v >= min && v <= max;
+  function limparEstudo(e) {
+    const txt = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+    return {
+      avaliacoes: (Array.isArray(e.avaliacoes) ? e.avaliacoes : []).filter(a => ehObj(a) && typeof a.id === 'string')
+        .map(a => ({ id: a.id, nome: txt(a.nome, 40) || 'Avaliação', peso: numOk(a.peso, 0.1, 100) ? a.peso : 1, nota: numOk(a.nota, 0, 10) ? a.nota : null })).slice(0, 30),
+      faltas: (Array.isArray(e.faltas) ? e.faltas : []).filter(diaOk).sort(),
+      limiteFaltas: numOk(e.limiteFaltas, 0, 999) ? Math.round(e.limiteFaltas) : null,
+      media: numOk(e.media, 0, 10) ? e.media : null,
+      anotacoes: txt(e.anotacoes, 20000),
+      flashcards: (Array.isArray(e.flashcards) ? e.flashcards : []).filter(c => ehObj(c) && typeof c.id === 'string' && typeof c.frente === 'string')
+        .map(c => ({ id: c.id, frente: txt(c.frente, 300), verso: txt(c.verso, 600), caixa: numOk(c.caixa, 1, 5) ? Math.round(c.caixa) : 1,
+          proxima: diaOk(c.proxima) ? c.proxima : '', acertos: numOk(c.acertos, 0, 1e6) ? c.acertos : 0, erros: numOk(c.erros, 0, 1e6) ? c.erros : 0 })).slice(0, 1000)
+    };
+  }
+  function getEstudoTudo() {
+    const e = ler('estudo', {});
+    return ehObj(e) ? Object.fromEntries(Object.entries(e).filter(([, v]) => ehObj(v)).map(([k, v]) => [k, limparEstudo(v)])) : {};
+  }
+  function getEstudo(idMateria) { return getEstudoTudo()[idMateria] || limparEstudo({}); }
+  /** Atualiza o estudo de uma matéria: recebe uma função que altera o objeto. */
+  function alterarEstudo(idMateria, fn) {
+    const tudo = getEstudoTudo();
+    const atual = tudo[idMateria] || limparEstudo({});
+    fn(atual);
+    tudo[idMateria] = limparEstudo(atual);
+    gravar('estudo', tudo);
+    return tudo[idMateria];
+  }
+
+  /* ---------- Relatório da semana (semana em que foi mostrado) ---------- */
+  function getRelatorioVisto() { const v = ler('relatorio', ''); return typeof v === 'string' ? v : ''; }
+  function marcarRelatorioVisto(semana) { gravar('relatorio', semana); }
+
   /* ---------- Resumo do dia (data em que foi mostrado pela última vez) ---------- */
   function getResumoVisto() { const v = ler('resumo', ''); return typeof v === 'string' ? v : ''; }
   function marcarResumoVisto(dia) { gravar('resumo', dia); }
 
   function carregarExemplo() {
-    const { tarefas, sessoes, aulas } = gerarExemplo();
+    const { tarefas, sessoes, aulas, estudo } = gerarExemplo();
+    gravar('estudo', estudo);
     salvarTarefas(tarefas);
     gravar('sessoes', sessoes);
     gravar('aulas', aulas);
@@ -262,7 +307,7 @@ const Store = (() => {
   function exportar() {
     return {
       app: 'PrazoCerto', versao: 1, exportadoEm: new Date().toISOString(),
-      tarefas: getTarefas(), materias: getMaterias(), sessoes: getSessoes(), aulas: getAulas(), config: getConfig()
+      tarefas: getTarefas(), materias: getMaterias(), sessoes: getSessoes(), aulas: getAulas(), estudo: getEstudoTudo(), config: getConfig()
     };
   }
 
@@ -271,22 +316,24 @@ const Store = (() => {
     salvarTarefas(dados.tarefas);
     if (Array.isArray(dados.materias) && dados.materias.length) salvarMaterias(dados.materias);
     if (Array.isArray(dados.aulas)) gravar('aulas', dados.aulas);
+    if (ehObj(dados.estudo)) gravar('estudo', dados.estudo);
     if (Array.isArray(dados.sessoes)) gravar('sessoes', dados.sessoes);
     if (dados.config) salvarConfig(dados.config);
   }
 
   function apagarTudo() {
-    ['tarefas', 'materias', 'sessoes', 'aulas', 'config', 'timer', 'conquistas', 'avisos', 'resumo'].forEach(apagar);
+    ['tarefas', 'materias', 'sessoes', 'aulas', 'estudo', 'config', 'timer', 'conquistas', 'avisos', 'resumo', 'relatorio'].forEach(apagar);
   }
 
   /* ---------- Nuvem: foto dos dados e aplicação dos dados recebidos ---------- */
   // só as preferências que fazem sentido em todos os aparelhos (som e avisos ficam por aparelho)
-  const CONFIG_NUVEM = ['nome', 'foco', 'curta', 'longa', 'lembretesPadrao', 'resumoDiario', 'estudoInicio', 'estudoFim', 'atalhos'];
+  const CONFIG_NUVEM = ['nome', 'foco', 'curta', 'longa', 'lembretesPadrao', 'resumoDiario', 'estudoInicio', 'estudoFim', 'atalhos',
+    'relatorioSemanal', 'semestreInicio', 'semestreFim', 'mediaAprovacao', 'metaFocoMin', 'metaTarefas'];
   function aoMudar(fn) { ouvintes.push(fn); }
   function instantaneo() {
     const c = getConfig();
     return {
-      tarefas: getTarefas(), materias: getMaterias(), sessoes: getSessoes(), aulas: getAulas(),
+      tarefas: getTarefas(), materias: getMaterias(), sessoes: getSessoes(), aulas: getAulas(), estudo: getEstudoTudo(),
       conquistas: getConquistas(), config: Object.fromEntries(CONFIG_NUVEM.map(k => [k, c[k]]))
     };
   }
@@ -296,6 +343,7 @@ const Store = (() => {
     try {
       ['tarefas', 'materias', 'sessoes', 'aulas'].forEach(k => { if (Array.isArray(d[k])) gravar(k, d[k]); });
       if (ehObj(d.conquistas)) gravar('conquistas', d.conquistas);
+      if (ehObj(d.estudo)) gravar('estudo', d.estudo);
       if (ehObj(d.config)) {
         const recebida = Object.fromEntries(CONFIG_NUVEM.filter(k => k in d.config).map(k => [k, d.config[k]]));
         gravar('config', { ...getConfig(), ...recebida });
@@ -314,6 +362,7 @@ const Store = (() => {
     getConfig, salvarConfig, getTema, salvarTema, getTimer, salvarTimer,
     getConquistas, salvarConquistas, getAvisos, marcarAvisado, limparAvisos,
     getAulas, salvarAula, removerAula, getResumoVisto, marcarResumoVisto,
+    getEstudoTudo, getEstudo, alterarEstudo, getRelatorioVisto, marcarRelatorioVisto,
     carregarExemplo, exportar, importar, apagarTudo
   };
 })();

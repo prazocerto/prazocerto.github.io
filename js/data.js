@@ -65,6 +65,18 @@ const REPETICOES = [
 
 const DIAS_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
+/** Sons de fundo do modo foco (gerados na hora, sem arquivos) */
+const SONS_FUNDO = [
+  { id: '',       label: '🔇 Nenhum' },
+  { id: 'chuva',  label: '🌧️ Chuva' },
+  { id: 'mar',    label: '🌊 Ondas do mar' },
+  { id: 'marrom', label: '🟤 Ruído marrom (grave, relaxante)' },
+  { id: 'branco', label: '⚪ Ruído branco (abafa conversas)' }
+];
+
+/** Repetição espaçada dos flashcards: dias até rever, por caixa (1 a 5) */
+const INTERVALOS_CAIXA = [0, 1, 3, 7, 14, 30];
+
 /** Toques do alarme (gerados com Web Audio, sem arquivo de som) */
 const TOQUES = [
   { id: 'sino',    label: '🔔 Sino' },
@@ -88,6 +100,15 @@ const CONFIG_PADRAO = {
   avisoMin: 60,     // (versão antiga) antecedência única do aviso, em minutos
   lembretesPadrao: [60], // lembretes que toda tarefa nova recebe
   resumoDiario: true,    // mostra o resumo do dia na primeira abertura
+  relatorioSemanal: true, // mostra o relatório da semana na 1ª abertura da semana
+  semestreInicio: '',    // 'AAAA-MM-DD' (opcional): progresso do semestre e limite de faltas
+  semestreFim: '',
+  mediaAprovacao: 7,     // média padrão para passar (cada matéria pode ter a sua)
+  metaFocoMin: 300,      // meta semanal de foco (minutos)
+  metaTarefas: 10,       // meta semanal de tarefas concluídas
+  somFundo: '',          // som de fundo no foco: '', chuva, mar, marrom, branco
+  volumeFundo: 40,
+  focoRigido: true,      // avisa quando a pessoa sai do app durante o foco
   estudoInicio: '08:00', // janela para sugerir horários livres de estudo
   estudoFim: '23:00',
   atalhos: true     // atalhos de uma tecla (podem ser desligados — WCAG 2.1.4)
@@ -104,7 +125,10 @@ const CONQUISTAS = [
   { id: 'urgente',    emoji: '🦸', nome: 'Apaga-incêndio',   desc: 'Conclua 3 tarefas de prioridade alta.',   teste: s => s.altasConcluidas >= 3 },
   { id: 'cedo',       emoji: '🌅', nome: 'Madrugador',       desc: 'Conclua uma tarefa antes das 9h.',        teste: s => s.antesDas9 >= 1 },
   { id: 'zerado',     emoji: '✨', nome: 'Tudo em dia',      desc: 'Tenha 5+ concluídas e nenhuma atrasada.', teste: s => s.concluidas >= 5 && s.atrasadas === 0 },
-  { id: 'nivel5',     emoji: '👑', nome: 'Mestre do tempo',  desc: 'Chegue ao nível 5.',                      teste: s => s.nivel >= 5 }
+  { id: 'nivel5',     emoji: '👑', nome: 'Mestre do tempo',  desc: 'Chegue ao nível 5.',                      teste: s => s.nivel >= 5 },
+  { id: 'meta',       emoji: '🎯', nome: 'Meta batida',      desc: 'Bata as duas metas da semana.',           teste: s => s.metasBatidas >= 1 },
+  { id: 'cartas',     emoji: '🃏', nome: 'Memória afiada',   desc: 'Acerte 20 flashcards.',                   teste: s => s.acertosCartas >= 20 },
+  { id: 'boletim',    emoji: '📒', nome: 'Boletim em dia',   desc: 'Cadastre as avaliações de 3 matérias.',   teste: s => s.materiasComNotas >= 3 }
 ];
 
 const FRASES = [
@@ -178,5 +202,30 @@ function gerarExemplo() {
     aula(3, 'm-algoritmos', '19:10', '20:50', 'Lab 2'), aula(3, 'm-bd', '21:00', '22:40', 'Lab 2'),
     aula(4, 'm-calculo', '19:10', '20:50', 'Sala 203'), aula(4, 'm-interfaces', '21:00', '22:40', 'Lab 4')
   ];
-  return { tarefas, sessoes, aulas };
+  // matérias: notas, faltas, anotações e flashcards (para a tela Matérias)
+  const hoje = dia => { const d = em(dia, 12, 0); return iso(d).slice(0, 10); };
+  const av = (nome, peso, nota) => ({ id: `av-${++n}`, nome, peso, nota });
+  const carta = (frente, verso, caixa, proxima) => ({ id: `fc-${++n}`, frente, verso, caixa, proxima: hoje(proxima), acertos: 0, erros: 0 });
+  const estudo = {
+    'm-bd': {
+      avaliacoes: [av('Prova 1', 3, 6.5), av('Trabalho (modelo ER)', 2, 9), av('Prova 2', 3, null), av('Projeto final', 2, null)],
+      faltas: [hoje(-15), hoje(-8)], limiteFaltas: null, media: null,
+      anotacoes: 'Normalização: 1FN (valores atômicos), 2FN (sem dependência parcial), 3FN (sem dependência transitiva).\nJOIN: INNER traz só o que casa; LEFT traz tudo da esquerda.',
+      flashcards: [
+        carta('O que é a 1ª forma normal (1FN)?', 'Todos os atributos têm valores atômicos (sem listas ou grupos repetidos).', 1, 0),
+        carta('Diferença entre INNER JOIN e LEFT JOIN?', 'INNER traz só as linhas que casam nas duas tabelas; LEFT traz todas da esquerda, com NULL quando não casa.', 2, 0),
+        carta('Para que serve o GROUP BY?', 'Agrupa linhas com o mesmo valor para usar funções como COUNT, SUM e AVG por grupo.', 1, 0),
+        carta('O que é chave estrangeira?', 'Coluna que referencia a chave primária de outra tabela, ligando as duas.', 3, 3)
+      ]
+    },
+    'm-calculo': {
+      avaliacoes: [av('Prova 1', 4, 5), av('Listas', 2, 8), av('Prova 2', 4, null)],
+      faltas: [hoje(-20), hoje(-13), hoje(-6), hoje(-3)], limiteFaltas: null, media: null, anotacoes: '', flashcards: []
+    },
+    'm-interfaces': {
+      avaliacoes: [av('Protótipo no Figma', 3, 9.5), av('Projeto de TI (Vibe Coding)', 4, null), av('Prova', 3, null)],
+      faltas: [], limiteFaltas: null, media: null, anotacoes: 'Projeto: HTML semântico + CSS responsivo + JavaScript puro. Entregar código no GitHub com link do GitHub Pages no README.', flashcards: []
+    }
+  };
+  return { tarefas, sessoes, aulas, estudo };
 }

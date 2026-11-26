@@ -2,12 +2,13 @@
  * PrazoCerto — Service Worker (app instalável e offline)
  * ---------------------------------------------------------
  * - Na instalação, guarda no aparelho todos os arquivos do app.
- * - Com internet: busca sempre a versão mais nova (e atualiza a cópia).
+ * - Com internet: busca sempre a versão mais nova, conferindo com o servidor
+ *   (cache: 'no-cache'), e atualiza a cópia.
  * - Sem internet: usa a cópia guardada, então o app abre normalmente.
  * - Clique numa notificação de lembrete: abre o app na tarefa.
  * Os dados do aluno continuam no LocalStorage; aqui ficam só os arquivos.
  * ========================================================= */
-const VERSAO = 'prazocerto-v4';
+const VERSAO = 'prazocerto-v7';
 const ARQUIVOS = [
   './',
   './index.html',
@@ -43,7 +44,8 @@ self.addEventListener('fetch', evento => {
   const req = evento.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   evento.respondWith(
-    fetch(req)
+    // 'no-cache': confere com o servidor em vez de usar a cópia de 10 min do GitHub Pages
+    fetch(req, { cache: 'no-cache' })
       .then(resp => {
         if (resp.ok) {
           const copia = resp.clone();

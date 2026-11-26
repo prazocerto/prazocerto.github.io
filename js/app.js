@@ -147,6 +147,9 @@ function calcularStats() {
     minutosFoco: sessoes.reduce((s, x) => s + x.minutos, 0),
     maxPomodorosDia: Math.max(0, ...Object.values(porDia)),
     sequencia,
+    metasBatidas: contarMetasBatidas(sessoes, concluidas),
+    acertosCartas: Object.values(Store.getEstudoTudo()).reduce((t, e) => t + e.flashcards.reduce((u, c) => u + c.acertos, 0), 0),
+    materiasComNotas: Object.values(Store.getEstudoTudo()).filter(e => e.avaliacoes.length).length,
     xp,
     nivel: Math.floor(xp / 100) + 1,
     xpNoNivel: xp % 100
@@ -208,6 +211,7 @@ function tarefaHTML(t, { indice = 0, mostrarSubs = false } = {}) {
           <span class="materia-tag" style="--cor:${mat.cor}">${esc(mat.nome)}</span>
           <span class="tipo">${tipo.emoji} ${esc(tipo.label)}</span>
           <span class="prio" style="--c:${prio.cor}">${prio.label}</span>
+          ${t.grupoId ? `<span class="grupo-tag" title="Trabalho em grupo: ${esc((t.grupoMembros || []).map(m => m.nome).join(', '))}">👥 ${(t.grupoMembros || []).length || ''}</span>` : ''}
           ${t.repetir ? `<span class="repete-tag" title="Repete: ${esc(infoRepeticao(t.repetir).label)}">🔁 ${esc(infoRepeticao(t.repetir).curto)}</span>` : ''}
         </div>
         <h3><button type="button" class="tarefa__titulo" data-acao="editar" data-id="${t.id}">${esc(t.titulo)}</button></h3>
@@ -221,7 +225,7 @@ function tarefaHTML(t, { indice = 0, mostrarSubs = false } = {}) {
         ${subs.length && !mostrarSubs ? `<div class="progresso-sub" role="progressbar" aria-label="Etapas concluídas" aria-valuenow="${feitas}" aria-valuemin="0" aria-valuemax="${subs.length}"><span style="width:${(feitas / subs.length) * 100}%"></span></div>` : ''}
         ${subs.length && mostrarSubs ? `<ul class="subs-inline">${subs.map(s => `
           <li><label><input type="checkbox" data-acao="sub" data-id="${t.id}" data-sub="${s.id}" ${s.feita ? 'checked' : ''}>
-          <span class="${s.feita ? 'feita' : ''}">${esc(s.texto)}</span></label></li>`).join('')}</ul>` : ''}
+          <span class="${s.feita ? 'feita' : ''}">${esc(s.texto)}</span></label>${s.responsavelNome ? ` <small class="resp-tag">👤 ${esc(s.responsavelNome.split(' ')[0])}</small>` : ''}</li>`).join('')}</ul>` : ''}
       </div>
       <div class="tarefa__acoes">
         ${!t.concluida ? `<button type="button" class="acao-mini" data-acao="focar" data-id="${t.id}" aria-label="Focar nesta tarefa" title="Focar (Pomodoro)">🍅</button>` : ''}
@@ -238,7 +242,18 @@ function vazioHTML(emoji, titulo, texto, botoes = '') {
 const BOTOES_VAZIO = `<button type="button" class="btn btn--primary" data-acao="nova-tarefa">＋ Criar tarefa</button>
   <button type="button" class="btn btn--ghost" data-acao="exemplo">🧪 Ver com dados de exemplo</button>`;
 
+/* Com uma janela (dialog) aberta, o resto da página não recebe cliques: os avisos
+   vão para dentro da janela aberta, para "Desfazer"/"Atualizar" continuarem clicáveis. */
+function posicionarAvisos() {
+  const area = $('#toasts');
+  if (!area) return;
+  const janela = $$('dialog[open]').pop();
+  const destino = janela || document.body;
+  if (area.parentElement !== destino) destino.appendChild(area);
+}
+
 function toast(mensagem, { tipo = 'info', acao = null, aoClicar = null, duracao = 3500 } = {}) {
+  posicionarAvisos();
   const area = $('#toasts');
   const el = document.createElement('div');
   el.className = `toast ${tipo === 'erro' ? 'toast--erro' : tipo === 'conquista' ? 'toast--conquista' : ''}`;
@@ -283,6 +298,7 @@ function abrirModal(id) {
   if (!$('dialog[open]')) estado.ultimoFoco = document.activeElement; // lembra quem abriu o primeiro modal
   dlg.showModal();
   if (alarme.ativo) posicionarBarraAlarme();
+  posicionarAvisos();
 }
 const fecharModal = dlg => { if (dlg && dlg.open) dlg.close(); };
 
@@ -348,6 +364,8 @@ function abrirFormTarefa(dados = {}) {
   marcarChips('lembrete', lembretesDe(dados));
   atualizarDicaLembretes();
   $('#t-repetir').value = dados.repetir || '';
+  $('#t-grupo-id').value = dados.grupoId || '';
+  if (window.Nuvem) window.Nuvem.renderCaixaGrupo(dados); else $('#t-grupo').innerHTML = '';
   $('#erro-repetir').hidden = true;
   estado.subtarefasEdicao = (dados.subtarefas || []).map(s => ({ ...s }));
   renderSubtarefasEdicao();
@@ -362,9 +380,13 @@ function abrirFormTarefa(dados = {}) {
 function prazoPadrao(dias) { const d = somarDias(new Date(), dias); d.setHours(23, 59, 0, 0); return d; }
 
 function renderSubtarefasEdicao() {
+  const meuUid = window.Nuvem && window.Nuvem.usuario ? window.Nuvem.usuario.uid : null;
+  const emGrupo = !!$('#t-grupo-id').value && meuUid;
   $('#t-subtarefas').innerHTML = estado.subtarefasEdicao.map((s, i) => `
     <li>
       <label><input type="checkbox" data-sub-index="${i}" ${s.feita ? 'checked' : ''}> ${esc(s.texto)}</label>
+      ${s.responsavelNome ? `<span class="resp-tag" title="Quem faz">👤 ${esc(s.responsavelNome.split(' ')[0])}</span>` : ''}
+      ${emGrupo ? `<button type="button" class="chip-btn" data-eu-faco="${i}">${s.responsavel === meuUid ? 'Liberar' : '✋ Eu faço'}</button>` : ''}
       <button type="button" class="acao-mini" data-remover-sub="${i}" aria-label="Remover etapa ${esc(s.texto)}">✕</button>
     </li>`).join('');
 }
@@ -794,6 +816,8 @@ function iniciarPausar() {
     timer.rodando = false;
     clearInterval(timer.intervalo);
     clearTimeout(timeoutFimCiclo);
+    atualizarSomFundo();
+    avisarFocoNuvem();
     $('#timer-status').textContent = '⏸ Pausado. Respire e volte quando quiser.';
   } else {
     preparaSom();
@@ -801,6 +825,8 @@ function iniciarPausar() {
     timer.rodando = true;
     timer.intervalo = setInterval(tique, 250);
     agendarFimCiclo();
+    atualizarSomFundo();
+    avisarFocoNuvem();
     $('#timer-status').textContent = timer.modo === 'foco' ? '🔕 Silencie o celular e foque só nisso.' : '☕ Levante, beba água, alongue-se.';
   }
   salvarTimer();
@@ -811,6 +837,8 @@ function reiniciarTimer() {
   timer.rodando = false;
   clearInterval(timer.intervalo);
   clearTimeout(timeoutFimCiclo);
+  pararFundo();
+  avisarFocoNuvem();
   timer.restante = duracaoModo(timer.modo);
   $('#timer-status').textContent = '↺ Timer reiniciado.';
   salvarTimer();
@@ -828,11 +856,14 @@ function terminarCiclo({ pulou = false } = {}) {
   clearInterval(timer.intervalo);
   clearTimeout(timeoutFimCiclo);
   timer.rodando = false;
+  pararFundo();
+  avisarFocoNuvem();
   const eraFoco = timer.modo === 'foco';
   if (eraFoco && !pulou) {
     const minutos = Store.getConfig().foco;
     const tarefa = timer.tarefaId ? Store.getTarefa(timer.tarefaId) : null;
-    Store.adicionarSessao({ inicio: new Date(timer.fim - minutos * 60000).toISOString(), minutos, materia: tarefa ? tarefa.materia : null, tarefaId: tarefa ? tarefa.id : null });
+    Store.adicionarSessao({ inicio: new Date(timer.fim - minutos * 60000).toISOString(), minutos, materia: tarefa ? tarefa.materia : null, tarefaId: tarefa ? tarefa.id : null, saidas: saidasDoCiclo });
+    saidasDoCiclo = 0;
     if (tarefa) Store.adicionarFoco(tarefa.id, minutos);
     timer.ciclos++;
     tocarAlarme('🍅 Ciclo concluído! Hora da pausa.');
@@ -881,6 +912,7 @@ function montarSelectTarefaFoco() {
 }
 
 function renderFoco() {
+  if (window.Nuvem) window.Nuvem.renderEstudandoAgora();
   montarSelectTarefaFoco();
   renderFocoHoje();
   atualizarTimerUI();
@@ -900,6 +932,19 @@ function renderFocoHoje() {
       const t = s.tarefaId ? Store.getTarefa(s.tarefaId) : null;
       return `<li><span>${t ? esc(t.titulo) : s.materia ? esc(infoMateria(s.materia).nome) : 'Foco livre'}</span><span>${hora(new Date(s.inicio))} · ${s.minutos}min</span></li>`;
     }).join('')}</ul>` : '<p class="sub">Nenhum ciclo ainda hoje. Que tal começar agora? 💪</p>'}`;
+}
+
+const avisarFocoNuvem = () => { if (window.Nuvem) window.Nuvem.publicarPerfil(); };
+
+/** Estudar junto: começa um foco que termina na mesma hora que o do amigo. */
+function focarAte(fim, texto) {
+  if (fim - Date.now() < 60000) { toast('O foco do seu amigo já está acabando. Espere o próximo!'); return; }
+  if (timer.rodando) { clearInterval(timer.intervalo); clearTimeout(timeoutFimCiclo); timer.rodando = false; }
+  definirModo('foco');
+  timer.restante = fim - Date.now();
+  irPara('foco');
+  iniciarPausar();
+  $('#timer-status').textContent = texto;
 }
 
 function focarEm(id) {
@@ -1071,10 +1116,11 @@ function renderProgresso() {
   const alvo = $('#progresso-conteudo');
 
   if (!tarefas.length && !sessoes.length) {
-    alvo.innerHTML = vazioHTML('📊', 'Ainda sem dados', 'Conclua tarefas e faça ciclos de foco para ver seu progresso.', BOTOES_VAZIO);
+    alvo.innerHTML = metasHTML() + '<div id="ranking"></div>' + vazioHTML('📊', 'Ainda sem dados', 'Conclua tarefas e faça ciclos de foco para ver seu progresso.', BOTOES_VAZIO);
     return;
   }
 
+  const metas = metasHTML();
   // Últimos 7 dias
   const hoje = new Date();
   const dias = Array.from({ length: 7 }, (_, i) => somarDias(hoje, i - 6));
@@ -1094,7 +1140,7 @@ function renderProgresso() {
   let acc = 0;
   const fatias = cont.map(p => { const ini = acc; acc += pend.length ? (p.n / pend.length) * 100 : 0; return `${p.cor} ${ini}% ${acc}%`; }).join(', ');
 
-  alvo.innerHTML = `
+  alvo.innerHTML = `${metas}<div id="ranking"></div>
     <div class="kpis">
       <div class="card kpi"><span class="kpi__valor">Nv. ${s.nivel}</span><span class="kpi__label">🎮 ${tituloNivel(s.nivel)} · ${s.xp} XP</span></div>
       <div class="card kpi"><span class="kpi__valor">${s.concluidas}</span><span class="kpi__label">✅ Tarefas concluídas</span></div>
@@ -1161,6 +1207,12 @@ function abrirConfig() {
   $('#cfg-atalhos').checked = c.atalhos;
   marcarChips('lembrete-padrao', c.lembretesPadrao);
   $('#cfg-resumo').checked = c.resumoDiario;
+  $('#cfg-relatorio').checked = c.relatorioSemanal;
+  $('#cfg-sem-inicio').value = c.semestreInicio;
+  $('#cfg-sem-fim').value = c.semestreFim;
+  $('#cfg-media').value = String(c.mediaAprovacao);
+  $('#cfg-meta-foco').value = String(c.metaFocoMin / 60);
+  $('#cfg-meta-tarefas').value = String(c.metaTarefas);
   $('#cfg-estudo-inicio').value = c.estudoInicio;
   $('#cfg-estudo-fim').value = c.estudoFim;
   if (window.Nuvem) window.Nuvem.renderConta();
@@ -1182,15 +1234,30 @@ function salvarConfig(e) {
   }
   const estudoInicio = $('#cfg-estudo-inicio').value, estudoFim = $('#cfg-estudo-fim').value;
   if (!estudoInicio || !estudoFim || estudoInicio >= estudoFim) {
-    erro.textContent = 'Na janela de estudo, o horário final precisa ser depois do inicial.';
+    erro.textContent = 'No horário de estudo, o “Até” precisa ser depois do “Das”.';
     erro.hidden = false;
     return;
   }
+  const semestreInicio = $('#cfg-sem-inicio').value, semestreFim = $('#cfg-sem-fim').value;
+  if (semestreInicio && semestreFim && semestreInicio >= semestreFim) {
+    erro.textContent = 'O fim do semestre precisa ser depois do começo.';
+    erro.hidden = false;
+    return;
+  }
+  const mediaAprovacao = numeroBR($('#cfg-media').value);
+  if (mediaAprovacao === null || mediaAprovacao < 0 || mediaAprovacao > 10) {
+    erro.textContent = 'A média para passar precisa ser um número de 0 a 10.';
+    erro.hidden = false;
+    return;
+  }
+  const metaFocoMin = Math.round((numeroBR($('#cfg-meta-foco').value) || 0) * 60);
+  const metaTarefas = Math.max(0, Math.round(numeroBR($('#cfg-meta-tarefas').value) || 0));
   erro.hidden = true;
   pararAlarme();
   Store.salvarConfig({ nome: $('#cfg-nome').value.trim(), foco, curta, longa, ...somDoFormulario(), som: $('#cfg-som').checked,
     aviso: $('#cfg-aviso').checked, lembretesPadrao: lerChips('lembrete-padrao'), atalhos: $('#cfg-atalhos').checked,
-    resumoDiario: $('#cfg-resumo').checked, estudoInicio, estudoFim });
+    resumoDiario: $('#cfg-resumo').checked, estudoInicio, estudoFim,
+    relatorioSemanal: $('#cfg-relatorio').checked, semestreInicio, semestreFim, mediaAprovacao, metaFocoMin, metaTarefas });
   if (!timer.rodando) timer.restante = duracaoModo(timer.modo);
   salvarTimer();
   toast('⚙️ Configurações salvas');
@@ -1626,7 +1693,7 @@ const deMin = m => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 const aulasDoDia = diaSemana => Store.getAulas().filter(a => a.dia === diaSemana);
 const minutosAgora = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
 
-function aulaLinhaHTML(a, ehHoje) {
+function aulaLinhaHTML(a, ehHoje, comFalta = false) {
   const mat = infoMateria(a.materia);
   const agora = minutosAgora();
   const acontecendo = ehHoje && agora >= paraMin(a.inicio) && agora < paraMin(a.fim);
@@ -1636,6 +1703,7 @@ function aulaLinhaHTML(a, ehHoje) {
     <span class="materia-tag" style="--cor:${mat.cor}">${esc(mat.nome)}</span>
     ${a.local ? `<span class="sub">📍 ${esc(a.local)}</span>` : ''}
     ${acontecendo ? '<span class="agora-tag">agora</span>' : ''}
+    ${comFalta ? botaoFaltaHTML(a) : ''}
   </li>`;
 }
 
@@ -1820,6 +1888,8 @@ function revisoesDeHoje() {
 function renderHojeExtra() {
   const agora = new Date();
   const cards = [];
+  const fazer = fazerAgoraHTML();
+  if (fazer) cards.push(fazer);
   // Aulas de hoje + intervalo livre agora
   const aulas = aulasDoDia(agora.getDay());
   if (aulas.length) {
@@ -1827,7 +1897,7 @@ function renderHojeExtra() {
     const sug = livreAgora && sugestaoDeEstudo();
     cards.push(`<section class="card extra-card" aria-labelledby="titulo-aulas-hoje">
       <h2 id="titulo-aulas-hoje">🎓 Aulas de hoje</h2>
-      <ul class="mini-lista">${aulas.map(a => aulaLinhaHTML(a, true)).join('')}</ul>
+      <ul class="mini-lista">${aulas.map(a => aulaLinhaHTML(a, true, true)).join('')}</ul>
       ${livreAgora ? `<p class="sub">🟢 Livre agora até ${deMin(livreAgora[1])}${sug ? ` · bom momento para: <b>${esc(sug.texto)}</b>` : ''}</p>
         ${sug ? `<div class="botoes-linha"><button type="button" class="btn btn--ghost btn--sm" data-acao="focar" data-id="${sug.tarefa.id}">🍅 Focar agora</button></div>` : ''}` : ''}
     </section>`);
@@ -2015,6 +2085,807 @@ function importarTarefaCompartilhada() {
   verificarConquistas();
 }
 
+/* ================================================================
+   10. ESTUDO: MATÉRIAS (NOTAS, FALTAS, ANOTAÇÕES, FLASHCARDS),
+       FAZER AGORA, SEMESTRE, METAS, RELATÓRIO, SONS E IMPORTAÇÃO
+   ================================================================ */
+const numeroBR = v => { const n = parseFloat(String(v).replace(',', '.')); return isFinite(n) ? n : null; };
+const fmtNum = (n, casas = 1) => n.toLocaleString('pt-BR', { maximumFractionDigits: casas, minimumFractionDigits: 0 });
+const hojeISO = () => dataISO(new Date());
+const diaParaData = iso => new Date(`${iso}T12:00`);
+
+function abrirConfigEm(seletor) {
+  $('#btn-config').click();
+  setTimeout(() => { const el = $(seletor); if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); } }, 120);
+}
+
+/* ---------- 10.1 Semestre ---------- */
+function semestreInfo() {
+  const c = Store.getConfig();
+  if (!c.semestreInicio || !c.semestreFim || c.semestreInicio >= c.semestreFim) return null;
+  const ini = diaParaData(c.semestreInicio), fim = diaParaData(c.semestreFim), hoje = diaParaData(hojeISO());
+  const total = diffDias(fim, ini) + 1;
+  const passados = Math.min(total, Math.max(0, diffDias(hoje, ini) + 1));
+  return { ini, fim, total, passados, pct: Math.round(passados / total * 100), restam: Math.max(0, diffDias(fim, hoje)), terminou: hoje > fim, comecou: hoje >= ini };
+}
+
+/** Quantas aulas da matéria cabem no semestre (pelo horário cadastrado). */
+function encontrosNoSemestre(idMateria) {
+  const sem = semestreInfo();
+  if (!sem) return null;
+  const aulas = Store.getAulas().filter(a => a.materia === idMateria);
+  if (!aulas.length) return null;
+  let n = 0;
+  for (let d = new Date(sem.ini); d <= sem.fim; d = somarDias(d, 1)) n += aulas.filter(a => a.dia === d.getDay()).length;
+  return n;
+}
+
+/* ---------- 10.2 Notas ---------- */
+function infoNotas(idMateria) {
+  const e = Store.getEstudo(idMateria);
+  const media = e.media ?? Store.getConfig().mediaAprovacao;
+  const avs = e.avaliacoes;
+  if (!avs.length) return { vazio: true, media };
+  const pesoTotal = avs.reduce((t, a) => t + a.peso, 0);
+  const feitas = avs.filter(a => a.nota !== null);
+  const pesoFeito = feitas.reduce((t, a) => t + a.peso, 0);
+  const pontos = feitas.reduce((t, a) => t + a.nota * a.peso, 0);
+  const pesoRestante = pesoTotal - pesoFeito;
+  const faltam = avs.filter(a => a.nota === null);
+  const base = { media, mediaAtual: pesoFeito ? pontos / pesoFeito : null, faltam, pesoTotal };
+  if (!pesoRestante) {
+    const final = pontos / pesoTotal;
+    return { ...base, final, situacao: final >= media - 1e-9 ? 'aprovado' : 'reprovado', nivel: final >= media - 1e-9 ? 'ok' : 'perigo' };
+  }
+  const precisa = (media * pesoTotal - pontos) / pesoRestante;
+  if (precisa <= 0) return { ...base, precisa: 0, situacao: 'garantido', nivel: 'ok' };
+  if (precisa > 10 + 1e-9) return { ...base, precisa, situacao: 'impossivel', nivel: 'perigo' };
+  return { ...base, precisa, situacao: 'precisa', nivel: precisa >= 8 ? 'perigo' : precisa >= 6 ? 'alerta' : 'ok' };
+}
+
+function textoNotas(i) {
+  if (i.vazio) return { titulo: 'Sem avaliações ainda', texto: 'Cadastre as provas e trabalhos com o peso de cada um para saber quanto precisa tirar.' };
+  const nomes = i.faltam.map(a => a.nome);
+  const lista = nomes.length > 1 ? `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}` : nomes[0];
+  switch (i.situacao) {
+    case 'aprovado': return { titulo: `✅ Aprovado com ${fmtNum(i.final)}`, texto: `Média final ${fmtNum(i.final)} (precisava de ${fmtNum(i.media)}).` };
+    case 'reprovado': return { titulo: `❌ Média final ${fmtNum(i.final)}`, texto: `Ficou abaixo de ${fmtNum(i.media)}. Veja com o professor se há prova de recuperação.` };
+    case 'garantido': return { titulo: '🎉 Já está aprovado!', texto: `Mesmo tirando 0 em ${lista}, sua média fica acima de ${fmtNum(i.media)}.` };
+    case 'impossivel': return { titulo: `🚨 Precisaria de ${fmtNum(i.precisa)}`, texto: `Não dá para chegar a ${fmtNum(i.media)} só com ${lista}. Converse com o professor sobre recuperação ou trabalho extra.` };
+    default: return { titulo: `🎯 Precisa de ${fmtNum(i.precisa)} em ${lista}`, texto: `Média atual: ${i.mediaAtual === null ? '—' : fmtNum(i.mediaAtual)} · para passar: ${fmtNum(i.media)}.` };
+  }
+}
+
+/* ---------- 10.3 Faltas (mínimo de 75% de presença) ---------- */
+function infoFaltas(idMateria) {
+  const e = Store.getEstudo(idMateria);
+  const faltas = e.faltas.length;
+  const encontros = encontrosNoSemestre(idMateria);
+  const auto = encontros ? Math.floor(encontros * 0.25) : null;
+  const limite = e.limiteFaltas ?? auto;
+  if (limite === null) return { faltas, limite: null, encontros, auto, nivel: '' };
+  const restam = limite - faltas;
+  const nivel = restam < 0 ? 'perigo' : faltas >= limite * 0.75 ? 'alerta' : 'ok';
+  return { faltas, limite, restam, encontros, auto, nivel, pct: limite ? Math.min(100, faltas / limite * 100) : 100 };
+}
+
+function registrarFalta(idMateria, dia, doHoje = false) {
+  if (!idMateria || !dia) return;
+  Store.alterarEstudo(idMateria, e => { e.faltas.push(dia); });
+  const f = infoFaltas(idMateria);
+  const nome = infoMateria(idMateria).nome;
+  let msg = `🙋 Falta registrada em ${nome}`;
+  if (f.limite !== null) msg += f.restam < 0 ? ` · 🚫 passou do limite (${f.faltas}/${f.limite})` : ` · ainda pode faltar ${f.restam}`;
+  toast(msg, doHoje ? { acao: 'Desfazer', aoClicar: () => desfazerFaltaHoje(idMateria) } : {});
+  atualizarTudo();
+  if ($('#dlg-materia').open) renderPainelFaltas();
+}
+
+function desfazerFaltaHoje(idMateria) {
+  const dia = hojeISO();
+  Store.alterarEstudo(idMateria, e => { const i = e.faltas.lastIndexOf(dia); if (i >= 0) e.faltas.splice(i, 1); });
+  toast('Falta de hoje removida');
+  atualizarTudo();
+}
+
+function botaoFaltaHTML(a) {
+  const minutosInicio = paraMin(a.inicio);
+  if (minutosAgora() < minutosInicio - 30) return ''; // só a partir de pouco antes da aula
+  const hoje = hojeISO();
+  const faltasHoje = Store.getEstudo(a.materia).faltas.filter(d => d === hoje).length;
+  const aulasHoje = aulasDoDia(new Date().getDay()).filter(x => x.materia === a.materia);
+  const posicao = aulasHoje.findIndex(x => x.id === a.id);
+  return faltasHoje > posicao
+    ? `<button type="button" class="chip-btn" data-acao="desfazer-falta" data-materia="${a.materia}" title="Desfazer a falta">✓ Faltou</button>`
+    : `<button type="button" class="chip-btn" data-acao="faltei" data-materia="${a.materia}">🙋 Faltei</button>`;
+}
+
+/* ---------- 10.4 Flashcards (repetição espaçada, caixas de Leitner) ---------- */
+const cartasParaHoje = idMateria => Store.getEstudo(idMateria).flashcards.filter(c => !c.proxima || c.proxima <= hojeISO());
+const totalCartasHoje = () => Store.getMaterias().reduce((t, m) => t + cartasParaHoje(m.id).length, 0);
+
+/* ---------- 10.5 Tela Matérias ---------- */
+function renderMaterias() {
+  const sem = semestreInfo();
+  const provas = Store.getTarefas().filter(t => !t.concluida && t.tipo === 'prova' && t.prazo && new Date(t.prazo) >= new Date()).sort(compararPrazo).slice(0, 5);
+  if (sem) {
+    const titulo = !sem.comecou ? `O semestre começa em ${diffDias(sem.ini, new Date())} dia(s)` : sem.terminou ? '🏖️ Semestre encerrado. Boas férias!' : `${sem.pct}% do semestre concluído`;
+    $('#semestre-card').innerHTML = `<section class="card semestre-card" aria-labelledby="titulo-semestre">
+      <div class="semestre-card__topo"><h2 id="titulo-semestre">🗓️ ${titulo}</h2>
+        <p class="sub">${sem.comecou && !sem.terminou ? `Faltam <b>${sem.restam} dias</b> para as férias · ` : ''}${dataCurta(sem.ini)} a ${dataCurta(sem.fim)}</p></div>
+      <div class="barra" role="progressbar" aria-label="Progresso do semestre" aria-valuenow="${sem.pct}" aria-valuemin="0" aria-valuemax="100"><span style="width:${sem.pct}%"></span></div>
+      ${provas.length ? `<div class="semestre-provas"><span class="sub" style="background:none;padding:0">Próximas provas:</span>${provas.map(t => `<span>📝 ${esc(infoMateria(t.materia).nome)} · ${dataCurta(new Date(t.prazo))}</span>`).join('')}</div>` : ''}
+    </section>`;
+  } else {
+    $('#semestre-card').innerHTML = `<section class="card semestre-card"><p class="sub">🗓️ Coloque as datas do semestre para ver quanto falta para as férias e calcular sozinho o limite de faltas de cada matéria.</p>
+      <div class="botoes-linha"><button type="button" class="btn btn--ghost btn--sm" data-acao="semestre">Configurar semestre</button></div></section>`;
+  }
+  const cartasHoje = totalCartasHoje();
+  const lista = Store.getMaterias().map(m => {
+    const n = infoNotas(m.id), f = infoFaltas(m.id), c = cartasParaHoje(m.id).length;
+    const notaTxt = n.vazio ? '—' : n.situacao === 'aprovado' || n.situacao === 'reprovado' ? fmtNum(n.final) : n.situacao === 'garantido' ? '✓' : n.situacao === 'impossivel' ? '!' : fmtNum(n.precisa);
+    const notaSub = n.vazio ? 'sem notas' : n.situacao === 'precisa' ? 'precisa tirar' : n.situacao === 'garantido' ? 'já passou' : n.situacao === 'impossivel' ? 'recuperação' : 'média final';
+    const dica = n.situacao === 'impossivel' ? '🚨 Nota em risco: veja a aba Notas.'
+      : f.nivel === 'perigo' ? '🚫 Passou do limite de faltas.'
+      : f.nivel === 'alerta' ? `⚠️ Só pode faltar mais ${f.restam} aula(s).`
+      : c ? `🃏 ${c} flashcard(s) para revisar hoje.` : '';
+    return `<button type="button" class="card materia-card" style="--cor:${m.cor}" data-acao="abrir-materia" data-id="${m.id}" aria-label="Abrir ${esc(m.nome)}">
+      <h2>${esc(m.nome)}</h2>
+      <div class="materia-card__stats">
+        <div class="mstat mstat--${n.nivel || ''}"><b>${notaTxt}</b><small>📝 ${notaSub}</small></div>
+        <div class="mstat mstat--${f.nivel}"><b>${f.faltas}${f.limite !== null ? `/${f.limite}` : ''}</b><small>🙋 faltas</small></div>
+        <div class="mstat"><b>${c}</b><small>🃏 para revisar</small></div>
+      </div>
+      ${dica ? `<p class="materia-card__dica">${dica}</p>` : ''}
+    </button>`;
+  }).join('');
+  $('#materias-lista').innerHTML = lista + (cartasHoje ? '' : '');
+  const head = $('#view-materias .section-head');
+  let btnTodas = $('#btn-estudar-tudo');
+  if (!btnTodas) {
+    btnTodas = document.createElement('button');
+    btnTodas.type = 'button'; btnTodas.id = 'btn-estudar-tudo'; btnTodas.className = 'btn btn--primary';
+    btnTodas.dataset.acao = 'estudar-tudo';
+    head.appendChild(btnTodas);
+  }
+  btnTodas.textContent = `🃏 Revisar flashcards (${cartasHoje})`;
+  btnTodas.hidden = !cartasHoje;
+}
+
+/* ---------- 10.6 Janela da matéria (abas) ---------- */
+let materiaAberta = null;
+function abrirMateria(id, aba = 'notas') {
+  const m = Store.getMaterias().find(x => x.id === id);
+  if (!m) return;
+  materiaAberta = id;
+  const titulo = $('#materia-titulo');
+  titulo.textContent = m.nome;
+  titulo.style.setProperty('--cor', m.cor);
+  renderPainelNotas(); renderPainelFaltas(); renderPainelAnotacoes(); renderPainelCartas();
+  trocarAba(aba, false);
+  abrirModal('dlg-materia');
+}
+
+function trocarAba(nome, focar = true) {
+  $$('#dlg-materia [role="tab"]').forEach(t => {
+    const ativa = t.id === `aba-${nome}`;
+    t.setAttribute('aria-selected', String(ativa));
+    t.tabIndex = ativa ? 0 : -1;
+    if (ativa && focar) t.focus();
+  });
+  $$('#dlg-materia [role="tabpanel"]').forEach(p => { p.hidden = p.id !== `painel-${nome}`; });
+}
+
+function renderResultadoNotas() {
+  const i = infoNotas(materiaAberta);
+  const t = textoNotas(i);
+  const caixa = $('#resultado-nota');
+  if (!caixa) return;
+  caixa.className = `resultado-nota ${i.nivel || ''}`;
+  caixa.innerHTML = `<strong>${t.titulo}</strong><span class="sub">${t.texto}</span>`;
+}
+
+function renderPainelNotas() {
+  const e = Store.getEstudo(materiaAberta);
+  const padrao = Store.getConfig().mediaAprovacao;
+  $('#painel-notas').innerHTML = `
+    <div class="resultado-nota" id="resultado-nota" role="status" aria-live="polite"></div>
+    <div class="linha-media">
+      <label for="m-media" class="field__label" style="margin:0">Média para passar nesta matéria</label>
+      <input type="text" inputmode="decimal" id="m-media" class="input" value="${e.media ?? ''}" placeholder="${fmtNum(padrao)}" aria-describedby="m-media-dica">
+      <span class="field__hint" id="m-media-dica" style="margin:0">Em branco = padrão (${fmtNum(padrao)})</span>
+    </div>
+    ${e.avaliacoes.length ? `<table class="tabela-notas">
+      <thead><tr><th scope="col">Avaliação</th><th scope="col">Peso</th><th scope="col">Nota</th><th scope="col"><span class="sr-only">Remover</span></th></tr></thead>
+      <tbody>${e.avaliacoes.map(a => `<tr>
+        <td><input class="input" data-av="${a.id}" data-campo="nome" value="${esc(a.nome)}" maxlength="40" aria-label="Nome da avaliação"></td>
+        <td><input class="input" data-av="${a.id}" data-campo="peso" value="${fmtNum(a.peso, 2)}" inputmode="decimal" aria-label="Peso de ${esc(a.nome)}"></td>
+        <td><input class="input" data-av="${a.id}" data-campo="nota" value="${a.nota === null ? '' : fmtNum(a.nota, 2)}" inputmode="decimal" placeholder="—" aria-label="Nota de ${esc(a.nome)}"></td>
+        <td><button type="button" class="btn-icone" data-acao-m="rm-av" data-av="${a.id}" aria-label="Remover ${esc(a.nome)}">✕</button></td>
+      </tr>`).join('')}</tbody></table>` : ''}
+    <div class="botoes-linha"><button type="button" class="btn btn--ghost btn--sm" data-acao-m="add-av">＋ Adicionar avaliação</button></div>
+    <p class="field__hint" style="margin:0">Deixe a nota em branco nas avaliações que ainda não aconteceram. O peso pode ser 1, 2, 3… ou a porcentagem (30, 40…).</p>`;
+  renderResultadoNotas();
+}
+
+function renderPainelFaltas() {
+  const f = infoFaltas(materiaAberta);
+  const e = Store.getEstudo(materiaAberta);
+  let resumo;
+  if (f.limite === null) resumo = `<strong>${f.faltas} falta(s)</strong><span class="sub">Para saber o limite, coloque as datas do semestre (⚙️) e o horário das aulas (Agenda), ou digite o limite abaixo.</span>`;
+  else resumo = `<strong>${f.faltas} de ${f.limite} faltas permitidas</strong>
+    <div class="barra barra--${f.nivel === 'ok' ? 'ok' : f.nivel}" role="progressbar" aria-label="Faltas usadas" aria-valuenow="${f.faltas}" aria-valuemin="0" aria-valuemax="${f.limite}"><span style="width:${f.pct}%"></span></div>
+    <span class="sub">${f.restam < 0 ? `🚫 Você passou ${-f.restam} falta(s) do limite. Fale com a coordenação.` : f.restam === 0 ? '⚠️ Você está no limite: não pode faltar mais.' : `Ainda pode faltar <b>${f.restam}</b> aula(s).`}</span>`;
+  $('#painel-faltas').innerHTML = `
+    <div class="faltas-resumo resultado-nota ${f.nivel}">${resumo}</div>
+    <div class="contador-faltas">
+      <button type="button" class="btn btn--primary btn--sm" data-acao-m="falta-hoje">＋ Faltei hoje</button>
+      <label class="field__hint" style="margin:0" for="m-falta-data">ou em outro dia:</label>
+      <input type="date" id="m-falta-data" class="input" style="width:auto" max="${hojeISO()}">
+      <button type="button" class="btn btn--ghost btn--sm" data-acao-m="falta-data">Adicionar</button>
+    </div>
+    <div class="linha-media">
+      <label for="m-limite" class="field__label" style="margin:0">Limite de faltas</label>
+      <input type="text" inputmode="numeric" id="m-limite" class="input" value="${e.limiteFaltas ?? ''}" placeholder="${f.auto ?? 'auto'}" aria-describedby="m-limite-dica">
+      <span class="field__hint" id="m-limite-dica" style="margin:0">${f.auto !== null ? `Automático: 25% de ${f.encontros} aulas no semestre = ${f.auto}. Deixe em branco para usar.` : 'Normalmente é 25% das aulas do semestre.'}</span>
+    </div>
+    ${e.faltas.length ? `<ul class="lista-faltas" aria-label="Dias em que faltou">${e.faltas.map((d, i) => `<li>${maiuscula(dataCurta(diaParaData(d)))}<button type="button" data-acao-m="rm-falta" data-i="${i}" aria-label="Remover falta de ${dataCurta(diaParaData(d))}">✕</button></li>`).join('')}</ul>` : '<p class="sub" style="margin:0">Nenhuma falta registrada. 👏</p>'}`;
+}
+
+function renderPainelAnotacoes() {
+  $('#anotacoes-texto').value = Store.getEstudo(materiaAberta).anotacoes;
+  $('#anotacoes-status').textContent = 'Salva sozinho enquanto você digita.';
+}
+
+function renderPainelCartas() {
+  const e = Store.getEstudo(materiaAberta);
+  const hoje = cartasParaHoje(materiaAberta).length;
+  const quando = c => { if (!c.proxima || c.proxima <= hojeISO()) return 'revisar hoje'; const d = diffDias(diaParaData(c.proxima), new Date()); return d === 1 ? 'rever amanhã' : `rever em ${d} dias`; };
+  $('#painel-cartas').innerHTML = `
+    <div class="cartas-topo">
+      <p style="margin:0"><b>${hoje}</b> para revisar hoje · ${e.flashcards.length} no total</p>
+      <button type="button" class="btn btn--primary btn--sm" data-acao-m="estudar" ${hoje ? '' : 'disabled'}>▶ Estudar agora${hoje ? ` (${hoje})` : ''}</button>
+    </div>
+    <form class="form-carta" id="form-carta" novalidate>
+      <label class="field__label" for="c-frente" style="margin:0">Pergunta (frente)</label>
+      <textarea id="c-frente" class="input" rows="2" maxlength="300" placeholder="Ex.: O que é a 2ª forma normal?"></textarea>
+      <label class="field__label" for="c-verso" style="margin:0">Resposta (verso)</label>
+      <textarea id="c-verso" class="input" rows="2" maxlength="600" placeholder="Ex.: Está na 1FN e não tem dependência parcial da chave."></textarea>
+      <p class="erro" id="erro-carta" role="alert" hidden></p>
+      <div class="botoes-linha"><button type="submit" class="btn btn--ghost btn--sm">＋ Adicionar cartão</button></div>
+    </form>
+    ${e.flashcards.length ? `<ul class="lista-cartas">${e.flashcards.map(c => `<li>
+      <div><b>${esc(c.frente)}</b><br><small>${esc(c.verso)}</small></div>
+      <div style="display:grid;gap:4px;justify-items:end"><span class="caixa-tag">Caixa ${c.caixa} · ${quando(c)}</span>
+        <button type="button" class="btn-icone" data-acao-m="rm-carta" data-carta="${c.id}" aria-label="Apagar cartão">✕</button></div>
+    </li>`).join('')}</ul>` : '<p class="sub" style="margin:0">Crie cartões com perguntas e respostas. O app mostra cada um no dia certo: quem você erra volta logo, quem você acerta demora mais para voltar.</p>'}`;
+}
+
+let timerAnotacoes = null;
+function registrarEventosMaterias() {
+  const dlg = $('#dlg-materia');
+  // abas: clique e setas do teclado
+  $('#dlg-materia .abas').addEventListener('click', e => { const t = e.target.closest('[role="tab"]'); if (t) trocarAba(t.id.replace('aba-', '')); });
+  $('#dlg-materia .abas').addEventListener('keydown', e => {
+    if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return;
+    const abas = $$('#dlg-materia [role="tab"]');
+    const i = abas.findIndex(t => t.getAttribute('aria-selected') === 'true');
+    const j = e.key === 'Home' ? 0 : e.key === 'End' ? abas.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + abas.length) % abas.length;
+    e.preventDefault();
+    trocarAba(abas[j].id.replace('aba-', ''));
+  });
+  // notas e limites: salvam enquanto digita
+  dlg.addEventListener('input', e => {
+    const el = e.target;
+    if (el.dataset.av) {
+      const campo = el.dataset.campo;
+      let valor = el.value;
+      if (campo !== 'nome') {
+        valor = el.value.trim() === '' ? null : numeroBR(el.value);
+        const invalido = campo === 'nota' ? (valor !== null && (valor === null || valor < 0 || valor > 10)) : (valor === null || valor <= 0);
+        const lixo = el.value.trim() !== '' && numeroBR(el.value) === null;
+        el.setAttribute('aria-invalid', String(invalido || lixo));
+        if (invalido || lixo) return;
+      }
+      Store.alterarEstudo(materiaAberta, est => { const a = est.avaliacoes.find(x => x.id === el.dataset.av); if (a) a[campo] = campo === 'nome' ? valor.trim() || 'Avaliação' : valor; });
+      renderResultadoNotas();
+    } else if (el.id === 'm-media') {
+      const v = el.value.trim() === '' ? null : numeroBR(el.value);
+      const ruim = el.value.trim() !== '' && (v === null || v < 0 || v > 10);
+      el.setAttribute('aria-invalid', String(ruim));
+      if (ruim) return;
+      Store.alterarEstudo(materiaAberta, est => { est.media = v; });
+      renderResultadoNotas();
+    } else if (el.id === 'm-limite') {
+      const v = el.value.trim() === '' ? null : numeroBR(el.value);
+      const ruim = el.value.trim() !== '' && (v === null || v < 0);
+      el.setAttribute('aria-invalid', String(ruim));
+      if (ruim) return;
+      Store.alterarEstudo(materiaAberta, est => { est.limiteFaltas = v === null ? null : Math.round(v); });
+      const foco = document.activeElement === el;
+      renderPainelFaltas();
+      if (foco) { const novo = $('#m-limite'); novo.focus(); novo.setSelectionRange(novo.value.length, novo.value.length); }
+    } else if (el.id === 'anotacoes-texto') {
+      $('#anotacoes-status').textContent = 'Digitando…';
+      clearTimeout(timerAnotacoes);
+      timerAnotacoes = setTimeout(() => {
+        Store.alterarEstudo(materiaAberta, est => { est.anotacoes = el.value; });
+        $('#anotacoes-status').textContent = `✓ Salvo às ${hora(new Date())}`;
+      }, 500);
+    }
+  });
+  // botões dentro da janela
+  dlg.addEventListener('click', e => {
+    const b = e.target.closest('[data-acao-m]');
+    if (!b) return;
+    const id = materiaAberta;
+    switch (b.dataset.acaoM) {
+      case 'add-av': {
+        Store.alterarEstudo(id, est => { est.avaliacoes.push({ id: `av-${Date.now().toString(36)}`, nome: `Avaliação ${est.avaliacoes.length + 1}`, peso: 1, nota: null }); });
+        renderPainelNotas();
+        const nomes = $$('#painel-notas [data-campo="nome"]'); nomes[nomes.length - 1].select();
+        break;
+      }
+      case 'rm-av': {
+        const antes = Store.getEstudo(id).avaliacoes;
+        Store.alterarEstudo(id, est => { est.avaliacoes = est.avaliacoes.filter(a => a.id !== b.dataset.av); });
+        renderPainelNotas();
+        toast('Avaliação removida', { acao: 'Desfazer', aoClicar: () => { Store.alterarEstudo(id, est => { est.avaliacoes = antes; }); if (materiaAberta === id) renderPainelNotas(); atualizarTudo(); } });
+        break;
+      }
+      case 'falta-hoje': registrarFalta(id, hojeISO()); break;
+      case 'falta-data': {
+        const d = $('#m-falta-data').value;
+        if (!d || d > hojeISO()) { toast('Escolha um dia que já passou.', { tipo: 'erro' }); return; }
+        registrarFalta(id, d);
+        break;
+      }
+      case 'rm-falta': {
+        Store.alterarEstudo(id, est => { est.faltas.splice(Number(b.dataset.i), 1); });
+        renderPainelFaltas(); atualizarTudo();
+        break;
+      }
+      case 'estudar': abrirEstudo(id); break;
+      case 'rm-carta': {
+        const antes = Store.getEstudo(id).flashcards;
+        Store.alterarEstudo(id, est => { est.flashcards = est.flashcards.filter(c => c.id !== b.dataset.carta); });
+        renderPainelCartas();
+        toast('Cartão apagado', { acao: 'Desfazer', aoClicar: () => { Store.alterarEstudo(id, est => { est.flashcards = antes; }); if (materiaAberta === id) renderPainelCartas(); } });
+        break;
+      }
+    }
+    if (!['add-av', 'estudar'].includes(b.dataset.acaoM)) atualizarTudo();
+  });
+  // novo flashcard
+  dlg.addEventListener('submit', e => {
+    if (e.target.id !== 'form-carta') return;
+    e.preventDefault();
+    const frente = $('#c-frente').value.trim(), verso = $('#c-verso').value.trim();
+    const erro = $('#erro-carta');
+    if (!frente || !verso) { erro.textContent = 'Preencha a pergunta e a resposta.'; erro.hidden = false; (frente ? $('#c-verso') : $('#c-frente')).focus(); return; }
+    Store.alterarEstudo(materiaAberta, est => { est.flashcards.unshift({ id: `fc-${Date.now().toString(36)}`, frente, verso, caixa: 1, proxima: hojeISO(), acertos: 0, erros: 0 }); });
+    renderPainelCartas();
+    $('#c-frente').focus();
+    toast('🃏 Cartão criado');
+    atualizarTudo();
+  });
+  dlg.addEventListener('close', () => {
+    if (timerAnotacoes) { clearTimeout(timerAnotacoes); Store.alterarEstudo(materiaAberta, est => { est.anotacoes = $('#anotacoes-texto').value; }); timerAnotacoes = null; }
+    atualizarTudo();
+  });
+  // modo estudo
+  $('#dlg-estudar').addEventListener('click', e => {
+    const b = e.target.closest('[data-estudo]');
+    if (b) responderEstudo(b.dataset.estudo);
+  });
+  $('#dlg-estudar').addEventListener('keydown', e => {
+    if (e.target.closest('button') && (e.key === ' ' || e.key === 'Enter')) return; // o botão já trata
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); responderEstudo('mostrar'); }
+    else if (e.key === '1') responderEstudo('errei');
+    else if (e.key === '2') responderEstudo('acertei');
+    e.stopPropagation();
+  });
+  $('#dlg-estudar').addEventListener('close', () => { atualizarTudo(); if ($('#dlg-materia').open) renderPainelCartas(); });
+}
+
+/* ---------- 10.7 Estudar flashcards ---------- */
+let estudo = { fila: [], i: 0, mostrando: false, acertos: 0, erros: 0, total: 0 };
+function abrirEstudo(idMateria) {
+  const ids = idMateria ? [idMateria] : Store.getMaterias().map(m => m.id);
+  const fila = ids.flatMap(id => cartasParaHoje(id).map(c => ({ materia: id, id: c.id }))).sort((a, b) => {
+    const ca = Store.getEstudo(a.materia).flashcards.find(c => c.id === a.id), cb = Store.getEstudo(b.materia).flashcards.find(c => c.id === b.id);
+    return ca.caixa - cb.caixa || Math.random() - .5;
+  });
+  if (!fila.length) { toast('🎉 Nenhum flashcard para revisar hoje!'); return; }
+  estudo = { fila, i: 0, mostrando: false, acertos: 0, erros: 0, total: fila.length, repetidas: new Set() };
+  abrirModal('dlg-estudar');
+  renderEstudo(); // depois de abrir: o foco vai para "Mostrar resposta" (e não para o ✕)
+}
+function cartaAtual() {
+  const item = estudo.fila[estudo.i];
+  return item && { ...item, carta: Store.getEstudo(item.materia).flashcards.find(c => c.id === item.id) };
+}
+function renderEstudo() {
+  const atual = cartaAtual();
+  const botoes = $('#estudar-botoes');
+  if (!atual || !atual.carta) {
+    $('#estudar-progresso').textContent = 'Revisão concluída';
+    $('#carta').innerHTML = `<div class="fim-estudo"><span class="grande" aria-hidden="true">🎉</span><strong>Revisão concluída!</strong>
+      <span class="sub">Você acertou ${estudo.acertos} de ${estudo.acertos + estudo.erros} respostas. Os cartões voltam no dia certo para fixar.</span></div>`;
+    botoes.innerHTML = '<button type="button" class="btn btn--primary" data-fechar>Fechar</button>';
+    botoes.querySelector('button').focus();
+    return;
+  }
+  $('#estudar-progresso').textContent = `Cartão ${Math.min(estudo.i + 1, estudo.fila.length)} de ${estudo.fila.length} · ${infoMateria(atual.materia).nome}`;
+  $('#carta').innerHTML = `<div class="carta__frente" id="carta-frente">${esc(atual.carta.frente)}</div>
+    ${estudo.mostrando ? `<div class="carta__verso" id="carta-verso">${esc(atual.carta.verso)}</div>` : ''}`;
+  botoes.innerHTML = estudo.mostrando
+    ? '<button type="button" class="btn btn--errei" data-estudo="errei">😕 Errei</button><button type="button" class="btn btn--acertei" data-estudo="acertei">😄 Acertei</button>'
+    : '<button type="button" class="btn btn--primary" data-estudo="mostrar">👀 Mostrar resposta</button>';
+  botoes.querySelector('button:last-child').focus();
+}
+function responderEstudo(acao) {
+  const atual = cartaAtual();
+  if (!atual || !atual.carta) return;
+  if (acao === 'mostrar') { if (!estudo.mostrando) { estudo.mostrando = true; renderEstudo(); } return; }
+  if (!estudo.mostrando) return;
+  const acertou = acao === 'acertei';
+  Store.alterarEstudo(atual.materia, est => {
+    const c = est.flashcards.find(x => x.id === atual.id);
+    if (!c) return;
+    if (acertou) {
+      c.acertos++;
+      c.caixa = Math.min(5, c.caixa + 1);
+      c.proxima = dataISO(somarDias(new Date(), INTERVALOS_CAIXA[c.caixa]));
+    } else {
+      c.erros++;
+      c.caixa = 1;
+      c.proxima = hojeISO();
+    }
+  });
+  if (acertou) estudo.acertos++; else estudo.erros++;
+  // quem errou volta no fim da fila (uma vez por sessão)
+  if (!acertou && !estudo.repetidas.has(atual.id)) { estudo.repetidas.add(atual.id); estudo.fila.push({ materia: atual.materia, id: atual.id }); }
+  estudo.i++;
+  estudo.mostrando = false;
+  renderEstudo();
+  if (!cartaAtual()) verificarConquistas();
+}
+
+/* ---------- 10.8 Fazer agora ---------- */
+function motivosEPontos(t, agora) {
+  const motivos = [];
+  let pontos = infoPrioridade(t.prioridade).peso * 10;
+  if (t.prioridade === 'alta') motivos.push('🔴 prioridade alta');
+  if (t.prazo) {
+    const horas = (new Date(t.prazo) - agora) / 3600000;
+    if (horas < 0) { pontos += 60; motivos.push('⚠️ atrasada'); }
+    else {
+      pontos += 45 * Math.exp(-horas / 48);
+      motivos.push(horas < 24 ? `⏰ vence em ${horas < 1 ? `${Math.max(1, Math.round(horas * 60))} min` : `${Math.round(horas)}h`}` : diffDias(new Date(t.prazo), agora) === 1 ? '⏰ vence amanhã' : `📅 vence em ${diffDias(new Date(t.prazo), agora)} dias`);
+    }
+    if (t.tipo === 'prova' && horas >= 0 && horas < 24 * 7) { pontos += 10; motivos.push('📚 prova chegando'); }
+  }
+  if ((t.estimativa || 60) <= 30) { pontos += 6; motivos.push(`⚡ rápida (${formatarMin(t.estimativa)})`); }
+  if ((t.subtarefas || []).some(x => x.plano && !x.feita && x.data === hojeISO())) { pontos += 15; motivos.push('🗓️ revisão de hoje'); }
+  return { pontos, motivos: motivos.slice(0, 3) };
+}
+function fazerAgoraHTML() {
+  const agora = new Date();
+  const top = Store.getTarefas().filter(t => !t.concluida).map(t => ({ t, ...motivosEPontos(t, agora) })).sort((a, b) => b.pontos - a.pontos).slice(0, 3);
+  if (!top.length) return '';
+  return `<section class="card extra-card fazer-agora" aria-labelledby="titulo-fazer">
+    <div><h2 id="titulo-fazer">🎯 Fazer agora</h2><p class="sub">Por onde começar, pesando prazo, prioridade e tempo.</p></div>
+    <ol class="fazer-lista">${top.map((x, i) => `<li class="fazer-item">
+      <span class="fazer-num" aria-hidden="true">${i + 1}</span>
+      <div><b>${esc(x.t.titulo)}</b><div class="fazer-motivos">${x.motivos.map(m => `<span>${m}</span>`).join('')}</div></div>
+      <div class="botoes-linha">
+        <button type="button" class="btn btn--ghost btn--sm" data-acao="focar" data-id="${x.t.id}" aria-label="Focar em ${esc(x.t.titulo)}">🍅 Focar</button>
+        <button type="button" class="btn btn--ghost btn--sm" data-acao="concluir" data-id="${x.t.id}" aria-label="Concluir ${esc(x.t.titulo)}">✓</button>
+      </div></li>`).join('')}</ol>
+  </section>`;
+}
+
+/* ---------- 10.9 Metas da semana e relatório ---------- */
+function inicioSemana(d = new Date()) { const x = inicioDia(d); const dia = (x.getDay() + 6) % 7; return somarDias(x, -dia); } // segunda-feira
+function statsSemana(ini) {
+  const fim = somarDias(ini, 7);
+  const dentro = iso => { const d = new Date(iso); return d >= ini && d < fim; };
+  const sessoes = Store.getSessoes().filter(s => dentro(s.inicio));
+  const concluidas = Store.getTarefas().filter(t => t.concluida && t.concluidaEm && dentro(t.concluidaEm));
+  const porMateria = {};
+  sessoes.forEach(s => { if (s.materia) porMateria[s.materia] = (porMateria[s.materia] || 0) + s.minutos; });
+  const porDia = Array(7).fill(0);
+  sessoes.forEach(s => { porDia[(new Date(s.inicio).getDay() + 6) % 7] += s.minutos; });
+  return {
+    minutos: sessoes.reduce((t, s) => t + s.minutos, 0), pomodoros: sessoes.length, tarefas: concluidas.length,
+    noPrazo: concluidas.filter(t => !t.prazo || new Date(t.concluidaEm) <= new Date(t.prazo)).length,
+    saidas: sessoes.reduce((t, s) => t + (s.saidas || 0), 0), porMateria, porDia
+  };
+}
+function metasOk(st, c = Store.getConfig()) {
+  const ativas = [c.metaFocoMin > 0, c.metaTarefas > 0];
+  if (!ativas.some(Boolean)) return false;
+  return (!ativas[0] || st.minutos >= c.metaFocoMin) && (!ativas[1] || st.tarefas >= c.metaTarefas);
+}
+function contarMetasBatidas(sessoes, concluidas) {
+  const c = Store.getConfig();
+  if (!(c.metaFocoMin > 0 || c.metaTarefas > 0)) return 0;
+  const semanas = {};
+  const chave = d => dataISO(inicioSemana(new Date(d)));
+  sessoes.forEach(s => { const k = chave(s.inicio); semanas[k] = semanas[k] || { minutos: 0, tarefas: 0 }; semanas[k].minutos += s.minutos; });
+  concluidas.forEach(t => { if (!t.concluidaEm) return; const k = chave(t.concluidaEm); semanas[k] = semanas[k] || { minutos: 0, tarefas: 0 }; semanas[k].tarefas++; });
+  return Object.values(semanas).filter(st => metasOk(st, c)).length;
+}
+function metasHTML() {
+  const c = Store.getConfig();
+  if (!(c.metaFocoMin > 0 || c.metaTarefas > 0)) return '';
+  const st = statsSemana(inicioSemana());
+  const barra = (atual, meta, rotulo, texto) => {
+    const pct = Math.min(100, Math.round(atual / meta * 100));
+    return `<div class="meta"><div class="meta__linha"><span>${rotulo}</span><span>${texto}</span></div>
+      <div class="barra ${pct >= 100 ? 'barra--ok' : ''}" role="progressbar" aria-label="${rotulo}" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pct}%"></span></div></div>`;
+  };
+  const diasRestantes = 7 - ((new Date().getDay() + 6) % 7);
+  return `<section class="card metas-card" aria-labelledby="titulo-metas">
+    <div class="metas-card__topo"><h2 id="titulo-metas">🎯 Metas da semana ${metasOk(st, c) ? '· ✅ batidas!' : ''}</h2>
+      <div class="botoes-linha"><button type="button" class="btn btn--ghost btn--sm" data-acao="relatorio">📊 Semana passada</button><button type="button" class="btn btn--text btn--sm" data-acao="metas">Mudar metas</button></div></div>
+    ${c.metaFocoMin > 0 ? barra(st.minutos, c.metaFocoMin, '🍅 Horas de foco', `${formatarMin(st.minutos)} de ${formatarMin(c.metaFocoMin)}`) : ''}
+    ${c.metaTarefas > 0 ? barra(st.tarefas, c.metaTarefas, '✅ Tarefas concluídas', `${st.tarefas} de ${c.metaTarefas}`) : ''}
+    <p class="sub" style="margin:0">${metasOk(st, c) ? 'Mandou bem! 🎉 O que vier agora é bônus.' : `Faltam ${diasRestantes} dia(s) para a semana acabar (domingo).`}</p>
+  </section>`;
+}
+
+function conteudoRelatorio(ini) {
+  const st = statsSemana(ini), ant = statsSemana(somarDias(ini, -7));
+  const c = Store.getConfig();
+  const variacao = (a, b) => {
+    if (!b) return a ? '<span class="variacao sobe">novo</span>' : '';
+    const p = Math.round((a - b) / b * 100);
+    return p === 0 ? '<span class="variacao">igual</span>' : `<span class="variacao ${p > 0 ? 'sobe' : 'desce'}">${p > 0 ? '▲' : '▼'} ${Math.abs(p)}%</span>`;
+  };
+  const materias = Store.getMaterias();
+  const top = Object.entries(st.porMateria).sort((a, b) => b[1] - a[1])[0];
+  const pendentesPorMateria = new Set(Store.getTarefas().filter(t => !t.concluida).map(t => t.materia));
+  const esquecida = materias.find(m => pendentesPorMateria.has(m.id) && !st.porMateria[m.id] && m.id !== 'm-pessoal');
+  const diaTop = st.porDia.indexOf(Math.max(...st.porDia));
+  const nomesDias = ['segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo'];
+  const dicas = [];
+  if (metasOk(st, c)) dicas.push('🎯 Você bateu as metas da semana. Que tal subir um pouco a meta?');
+  else if (c.metaFocoMin > 0 && st.minutos < c.metaFocoMin) dicas.push(`🍅 Faltaram ${formatarMin(c.metaFocoMin - st.minutos)} para a meta de foco. Tente reservar um horário fixo nos dias livres.`);
+  if (top) dicas.push(`📚 A matéria mais estudada foi <b>${esc(infoMateria(top[0]).nome)}</b> (${formatarMin(top[1])}).`);
+  if (esquecida) dicas.push(`👀 <b>${esc(esquecida.nome)}</b> tem tarefas pendentes, mas não teve nenhum foco. Separe um Pomodoro para ela.`);
+  if (st.minutos) dicas.push(`📈 Seu dia mais focado foi <b>${nomesDias[diaTop]}</b>.`);
+  if (st.saidas) dicas.push(`📵 Você saiu do app ${st.saidas} vez(es) durante o foco. Deixar o celular longe ajuda!`);
+  if (st.tarefas && st.noPrazo === st.tarefas) dicas.push('⏰ Tudo o que você concluiu foi dentro do prazo. 👏');
+  if (!st.minutos && !st.tarefas) dicas.push('🌱 Semana parada. Comece com uma tarefa pequena: o primeiro passo é o mais difícil.');
+  return `<div class="relatorio-kpis">
+      <div><b>${formatarMin(st.minutos) || '0min'}</b><small>🍅 de foco ${variacao(st.minutos, ant.minutos)}</small></div>
+      <div><b>${st.tarefas}</b><small>✅ tarefas ${variacao(st.tarefas, ant.tarefas)}</small></div>
+      <div><b>${st.tarefas ? Math.round(st.noPrazo / st.tarefas * 100) : 0}%</b><small>⏰ no prazo</small></div>
+      <div><b>${st.pomodoros}</b><small>🔁 Pomodoros</small></div>
+    </div>
+    <ul class="relatorio-dicas">${dicas.map(d => `<li>${d}</li>`).join('')}</ul>`;
+}
+function mostrarRelatorio(ini = somarDias(inicioSemana(), -7)) {
+  const fim = somarDias(ini, 6);
+  $('#relatorio-periodo').textContent = `Semana de ${dataCurta(ini)} a ${dataCurta(fim)}`;
+  $('#relatorio-conteudo').innerHTML = conteudoRelatorio(ini);
+  abrirModal('dlg-relatorio');
+}
+function mostrarRelatorioSeNovaSemana() {
+  const c = Store.getConfig();
+  const semana = dataISO(inicioSemana());
+  if (!c.relatorioSemanal || Store.getRelatorioVisto() === semana || $('dialog[open]')) return;
+  const passada = statsSemana(somarDias(inicioSemana(), -7));
+  if (!passada.minutos && !passada.tarefas) return; // nada para contar
+  Store.marcarRelatorioVisto(semana);
+  mostrarRelatorio();
+  // ao fechar o relatório, o resumo do dia aparece em seguida (se ainda não apareceu hoje)
+  $('#dlg-relatorio').addEventListener('close', () => setTimeout(mostrarResumoSeNovoDia, 250), { once: true });
+}
+
+/* ---------- 10.10 Sons de fundo do foco (Web Audio) ---------- */
+let fundo = { ctx: null, saida: null, fontes: [], tipo: '' };
+function bufferRuido(ctx, tipo, segundos = 4) {
+  const buf = ctx.createBuffer(2, ctx.sampleRate * segundos, ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    let ultimo = 0;
+    for (let i = 0; i < d.length; i++) {
+      const branco = Math.random() * 2 - 1;
+      if (tipo === 'marrom') { ultimo = (ultimo + 0.02 * branco) / 1.02; d[i] = ultimo * 3.5; }
+      else d[i] = branco;
+    }
+  }
+  return buf;
+}
+function iniciarFundo(tipo, volume) {
+  if (fundo.tipo === tipo && fundo.saida) { ajustarVolumeFundo(); return; }
+  pararFundo();
+  preparaSom();
+  if (!audioCtx) return;
+  const ctx = audioCtx;
+  const saida = ctx.createGain();
+  saida.gain.value = 0;
+  saida.gain.setTargetAtTime(volume / 100 * 0.6, ctx.currentTime, 0.8); // entra suave
+  saida.connect(ctx.destination);
+  const fontes = [];
+  const fonte = (t, filtros = []) => {
+    const s = ctx.createBufferSource(); s.buffer = bufferRuido(ctx, t); s.loop = true;
+    let no = s; filtros.forEach(f => { no.connect(f); no = f; });
+    fontes.push(s);
+    return { s, fim: no };
+  };
+  const filtro = (type, freq, Q = 0.7) => { const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = Q; return f; };
+  if (tipo === 'chuva') {
+    const chiado = fonte('branco', [filtro('highpass', 900), filtro('lowpass', 7000)]);
+    const g1 = ctx.createGain(); g1.gain.value = 0.35; chiado.fim.connect(g1).connect(saida);
+    const grave = fonte('marrom', [filtro('lowpass', 500)]);
+    const g2 = ctx.createGain(); g2.gain.value = 0.5; grave.fim.connect(g2).connect(saida);
+  } else if (tipo === 'mar') {
+    const onda = fonte('marrom', [filtro('lowpass', 1100)]);
+    const g = ctx.createGain(); g.gain.value = 0.55;
+    const lfo = ctx.createOscillator(); lfo.frequency.value = 0.09; // uma onda a cada ~11 s
+    const prof = ctx.createGain(); prof.gain.value = 0.4;
+    lfo.connect(prof).connect(g.gain); lfo.start();
+    fontes.push(lfo);
+    onda.fim.connect(g).connect(saida);
+  } else if (tipo === 'marrom') {
+    const r = fonte('marrom', [filtro('lowpass', 1500)]); r.fim.connect(saida);
+  } else {
+    const r = fonte('branco', [filtro('lowpass', 9000)]); const g = ctx.createGain(); g.gain.value = 0.35; r.fim.connect(g).connect(saida);
+  }
+  fontes.forEach(f => { if (f.start && f.buffer) f.start(); });
+  fundo = { ctx, saida, fontes, tipo };
+}
+function ajustarVolumeFundo() {
+  if (fundo.saida) fundo.saida.gain.setTargetAtTime(Store.getConfig().volumeFundo / 100 * 0.6, fundo.ctx.currentTime, 0.2);
+}
+function pararFundo() {
+  if (!fundo.saida) return;
+  const { saida, fontes, ctx } = fundo;
+  saida.gain.setTargetAtTime(0, ctx.currentTime, 0.3);
+  setTimeout(() => { fontes.forEach(f => { try { f.stop(); } catch (_) {} }); try { saida.disconnect(); } catch (_) {} }, 1500);
+  fundo = { ctx: null, saida: null, fontes: [], tipo: '' };
+}
+let previaFundo = null;
+function atualizarSomFundo(previa = false) {
+  const c = Store.getConfig();
+  const deveTocar = timer.rodando && timer.modo === 'foco' && c.somFundo;
+  clearTimeout(previaFundo);
+  if (deveTocar) { iniciarFundo(c.somFundo, c.volumeFundo); return; }
+  if (previa && c.somFundo) { // ouvir 4 segundos ao escolher, com o timer parado
+    iniciarFundo(c.somFundo, c.volumeFundo);
+    previaFundo = setTimeout(() => { if (!timer.rodando) pararFundo(); }, 4000);
+    return;
+  }
+  pararFundo();
+}
+
+/* ---------- 10.11 Foco sem distração ---------- */
+let saidaDoFoco = null, avisoSaida = null, saidasDoCiclo = 0;
+function vigiarSaidaDoFoco() {
+  const focando = timer.rodando && timer.modo === 'foco' && Store.getConfig().focoRigido;
+  if (document.visibilityState === 'hidden') {
+    if (!focando) return;
+    saidaDoFoco = Date.now();
+    avisoSaida = setTimeout(() => {
+      const faltam = Math.max(1, Math.round((timer.fim - Date.now()) / 60000));
+      mostrarNotificacao('⏳ Volta pro foco!', `Faltam ${faltam} min. Você consegue! 💪`, 'foco-saida');
+    }, 15000);
+    return;
+  }
+  clearTimeout(avisoSaida);
+  if (saidaDoFoco && focando) {
+    const fora = Date.now() - saidaDoFoco;
+    if (fora > 5000) {
+      saidasDoCiclo++;
+      const faltam = Math.max(0, Math.round((timer.fim - Date.now()) / 60000));
+      toast(`👀 Você ficou ${fora < 60000 ? `${Math.round(fora / 1000)} s` : `${Math.round(fora / 60000)} min`} fora do app. ${faltam ? `Faltam ${faltam} min de foco, bora!` : 'O foco já está acabando!'}`, { duracao: 6000 });
+    }
+  }
+  saidaDoFoco = null;
+}
+
+/* ---------- 10.12 Atalhos do ícone e textos vindos de outros apps ---------- */
+function tratarAcaoDaUrl() {
+  const p = new URLSearchParams(location.search);
+  const acao = p.get('acao');
+  const recebido = [p.get('titulo'), p.get('texto'), p.get('link')].filter(Boolean).join(' ').trim();
+  if (!acao && !recebido) return;
+  history.replaceState(null, '', location.pathname + location.hash);
+  if ($('dialog[open]')) return;
+  if (acao === 'nova') { abrirFormTarefa(); return; }
+  if (acao === 'focar') { irPara('foco'); if (!timer.rodando) iniciarPausar(); return; }
+  if (acao === 'cartas') { irPara('materias'); abrirEstudo(null); return; }
+  if (recebido) {
+    // texto compartilhado de outro app (ex.: mensagem do grupo): vira uma tarefa para conferir
+    const r = interpretarRapida(recebido.slice(0, 200));
+    abrirFormTarefa({ titulo: r.titulo.slice(0, 80), prazo: r.prazo || '', prioridade: r.prioridade, materia: r.materia || undefined, descricao: recebido.slice(0, 1000) });
+    toast('📥 Texto recebido de outro app. Confira e salve a tarefa.', { duracao: 7000 });
+  }
+}
+
+/* ---------- 10.13 Importar calendário (.ics) ---------- */
+let eventosIcs = [];
+function lerIcs(texto) {
+  const linhas = texto.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '').split(/\r?\n/);
+  const eventos = [];
+  let ev = null;
+  const desescapar = v => v.replace(/\\n/gi, '\n').replace(/\\([,;\\])/g, '$1');
+  linhas.forEach(l => {
+    if (l === 'BEGIN:VEVENT') ev = {};
+    else if (l === 'END:VEVENT') { if (ev && ev.inicio && ev.titulo) eventos.push(ev); ev = null; }
+    else if (ev) {
+      const i = l.indexOf(':');
+      if (i < 0) return;
+      const [nome, ...params] = l.slice(0, i).split(';');
+      const valor = l.slice(i + 1);
+      if (nome === 'SUMMARY') ev.titulo = desescapar(valor).trim();
+      else if (nome === 'DESCRIPTION') ev.descricao = desescapar(valor).trim();
+      else if (nome === 'UID') ev.uid = valor.trim();
+      else if (nome === 'DTSTART') {
+        const m = valor.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?/);
+        if (!m) return;
+        const [, a, me, d, h, mi, , z] = m;
+        if (!h) ev.inicio = new Date(+a, +me - 1, +d, 23, 59); // dia inteiro: entrega até o fim do dia
+        else ev.inicio = z ? new Date(Date.UTC(+a, +me - 1, +d, +h, +mi)) : new Date(+a, +me - 1, +d, +h, +mi);
+        ev.diaInteiro = !h || params.includes('VALUE=DATE');
+      }
+    }
+  });
+  return eventos;
+}
+function adivinharTipo(t) {
+  const n = normalizar(t);
+  if (/prova|avaliacao|exame|teste|quiz|p1|p2|ap1|ap2/.test(n)) return 'prova';
+  if (/semin|apresenta/.test(n)) return 'apresentacao';
+  if (/lista|exercic|atividade/.test(n)) return 'lista';
+  if (/trabalho|projeto|entrega|relatorio/.test(n)) return 'trabalho';
+  if (/leitura|ler |capitulo/.test(n)) return 'leitura';
+  return 'outro';
+}
+function adivinharMateria(t) {
+  const n = normalizar(t);
+  const m = Store.getMaterias().find(x => n.includes(normalizar(x.nome)) || normalizar(x.nome).split(' ').some(p => p.length >= 5 && n.includes(p)));
+  return m ? m.id : (Store.getMaterias().find(x => x.id === 'm-pessoal') || Store.getMaterias()[0]).id;
+}
+async function lerArquivoIcs(e) {
+  const arq = e.target.files[0];
+  e.target.value = '';
+  if (!arq) return;
+  if (arq.size > 5e6) { toast('Arquivo grande demais (máximo 5 MB).', { tipo: 'erro' }); return; }
+  let eventos;
+  try { eventos = lerIcs(await arq.text()); } catch (_) { eventos = []; }
+  const desde = somarDias(new Date(), -1);
+  const existentes = Store.getTarefas();
+  eventosIcs = eventos.filter(ev => ev.inicio >= desde).sort((a, b) => a.inicio - b.inicio).slice(0, 300)
+    .map((ev, i) => ({ ...ev, i, prazo: paraInput(ev.inicio), repetida: existentes.some(t => (ev.uid && t.icsUid === ev.uid) || (normalizar(t.titulo) === normalizar(ev.titulo).slice(0, 80) && t.prazo === paraInput(ev.inicio))) }));
+  if (!eventosIcs.length) { toast(eventos.length ? 'Nenhum evento futuro nesse calendário.' : 'Não encontrei eventos nesse arquivo. Confira se é um .ics.', { tipo: 'erro' }); return; }
+  const academico = /prova|trabalho|entrega|lista|atividade|exerc|semin|apresenta|teste|avalia|quiz|tarefa|projeto|relat/;
+  $('#ics-sub').textContent = `${eventosIcs.length} evento(s) a partir de hoje. Marquei os que parecem provas e entregas: confira antes de importar.`;
+  $('#ics-lista').innerHTML = eventosIcs.map(ev => `<label class="ics-item">
+    <input type="checkbox" data-ics="${ev.i}" ${!ev.repetida && academico.test(normalizar(ev.titulo)) ? 'checked' : ''} ${ev.repetida ? 'disabled' : ''}>
+    <span><b>${esc(ev.titulo.slice(0, 80))}</b><small>${maiuscula(dataCurta(ev.inicio))}${ev.diaInteiro ? '' : ` às ${hora(ev.inicio)}`} · ${infoTipo(adivinharTipo(ev.titulo)).emoji} ${infoTipo(adivinharTipo(ev.titulo)).label}${ev.repetida ? ' · já está nas suas tarefas' : ''}</small></span>
+  </label>`).join('');
+  abrirModal('dlg-ics');
+}
+function importarIcsSelecionados() {
+  const escolhidos = $$('#ics-lista input[data-ics]:checked').map(i => eventosIcs[Number(i.dataset.ics)]);
+  if (!escolhidos.length) { toast('Marque pelo menos um evento.', { tipo: 'erro' }); return; }
+  escolhidos.forEach(ev => {
+    const t = Store.salvarTarefa({
+      titulo: ev.titulo.slice(0, 80), prazo: ev.prazo, tipo: adivinharTipo(ev.titulo), prioridade: adivinharTipo(ev.titulo) === 'prova' ? 'alta' : 'media',
+      materia: adivinharMateria(ev.titulo), estimativa: 60, descricao: (ev.descricao || '').slice(0, 1000), subtarefas: [], icsUid: ev.uid || ''
+    });
+    pularLembretesPassados(t);
+  });
+  fecharModal($('#dlg-ics'));
+  toast(`📅 ${escolhidos.length} tarefa(s) importada(s) do calendário`);
+  atualizarTudo();
+}
+
 function aplicarTema(tema) {
   document.documentElement.setAttribute('data-theme', tema);
   const escuro = tema === 'dark';
@@ -2037,9 +2908,9 @@ function alternarTema() {
 /* ================================================================
    9. NAVEGAÇÃO, ATALHOS E EVENTOS
    ================================================================ */
-const VIEWS = ['hoje', 'tarefas', 'agenda', 'foco', 'progresso'];
-const TITULOS = { hoje: 'Hoje', tarefas: 'Tarefas', agenda: 'Agenda', foco: 'Foco', progresso: 'Progresso' };
-const RENDER = { hoje: renderHoje, tarefas: renderTarefas, agenda: renderAgenda, foco: renderFoco, progresso: renderProgresso };
+const VIEWS = ['hoje', 'tarefas', 'agenda', 'materias', 'foco', 'progresso'];
+const TITULOS = { hoje: 'Hoje', tarefas: 'Tarefas', agenda: 'Agenda', materias: 'Matérias', foco: 'Foco', progresso: 'Progresso' };
+const RENDER = { hoje: renderHoje, tarefas: renderTarefas, agenda: renderAgenda, materias: renderMaterias, foco: renderFoco, progresso: renderProgresso };
 
 function irPara(view) {
   if (!VIEWS.includes(view)) view = 'hoje';
@@ -2053,6 +2924,7 @@ function mostrarView(view, focar = true) {
   VIEWS.forEach(v => { $(`#view-${v}`).hidden = v !== view; });
   $$('.nav__link').forEach(a => (a.dataset.view === view ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
   RENDER[view]();
+  if (window.Nuvem) window.Nuvem.renderSocial();
   atualizarTimerUI();
   window.scrollTo(0, 0);
   if (focar) { const h = $(`#view-${view} h1`); h.setAttribute('tabindex', '-1'); h.focus({ preventScroll: true }); }
@@ -2065,17 +2937,28 @@ function atualizarTudo() {
   badge.textContent = s.atrasadas;
   badge.hidden = !s.atrasadas;
   RENDER[estado.view]();
+  if (window.Nuvem) window.Nuvem.renderSocial();
   if (estado.view !== 'foco') montarSelectTarefaFoco();
   verificarAvisos();
 }
 
 function aoClicar(e) {
-  const alvo = e.target.closest('[data-acao], [data-fechar], [data-dia], [data-prazo], [data-remover-sub], a[href^="#"]');
+  const alvo = e.target.closest('[data-acao], [data-fechar], [data-dia], [data-prazo], [data-remover-sub], [data-eu-faco], a[href^="#"]');
   if (!alvo) return;
 
   if (alvo.hasAttribute('data-fechar')) return fecharModal(alvo.closest('dialog'));
   if (alvo.dataset.dia) { estado.diaSelecionado = alvo.dataset.dia; renderAgenda(); $(`[data-dia="${alvo.dataset.dia}"]`)?.focus(); return; }
   if (alvo.hasAttribute('data-prazo')) { definirPrazoRapido(alvo.dataset.prazo); atualizarDicaLembretes(); return; }
+  if (alvo.hasAttribute('data-eu-faco')) {
+    const sub = estado.subtarefasEdicao[Number(alvo.dataset.euFaco)];
+    const u = window.Nuvem && window.Nuvem.usuario;
+    if (sub && u) {
+      if (sub.responsavel === u.uid) { sub.responsavel = null; sub.responsavelNome = ''; }
+      else { sub.responsavel = u.uid; sub.responsavelNome = u.displayName || 'Eu'; }
+      renderSubtarefasEdicao();
+    }
+    return;
+  }
   if (alvo.hasAttribute('data-remover-sub')) { estado.subtarefasEdicao.splice(Number(alvo.dataset.removerSub), 1); renderSubtarefasEdicao(); return; }
 
   if (alvo.matches('a[href^="#"]') && !alvo.dataset.acao) {
@@ -2098,6 +2981,13 @@ function aoClicar(e) {
     case 'editar-aula': abrirFormAula(Store.getAulas().find(a => a.id === id)); break;
     case 'resumo': mostrarResumo(); break;
     case 'criar-plano': criarPlanoDireto(id); break;
+    case 'abrir-materia': abrirMateria(id); break;
+    case 'semestre': abrirConfigEm('#cfg-sem-inicio'); break;
+    case 'faltei': registrarFalta(alvo.dataset.materia, dataISO(new Date()), true); break;
+    case 'desfazer-falta': desfazerFaltaHoje(alvo.dataset.materia); break;
+    case 'relatorio': mostrarRelatorio(); break;
+    case 'estudar-tudo': abrirEstudo(null); break;
+    case 'metas': abrirConfigEm('#cfg-meta-foco'); break;
     case 'excluir-materia': excluirMateria(id); break;
     case 'limpar-filtros':
       $('#busca').value = ''; $('#filtro-prioridade').value = ''; $('#filtro-materia').value = ''; $('#filtro-status').value = 'pendentes';
@@ -2118,7 +3008,7 @@ function aoPressionarTecla(e) {
   if (digitando || e.ctrlKey || e.metaKey || e.altKey || $('dialog[open]')) return;
   if (!Store.getConfig().atalhos) return; // o usuário pode desligar os atalhos de uma tecla (WCAG 2.1.4)
   const k = e.key.toLowerCase();
-  if (e.key >= '1' && e.key <= '5') irPara(VIEWS[Number(e.key) - 1]);
+  if (e.key >= '1' && e.key <= '6') irPara(VIEWS[Number(e.key) - 1]);
   else if (k === 'n') { e.preventDefault(); abrirFormTarefa(); }
   else if (k === 't') alternarTema();
   else if (e.key === '/') { e.preventDefault(); irPara('tarefas'); $('#busca').focus(); }
@@ -2203,7 +3093,7 @@ function registrarEventos() {
   $('#btn-parar-alarme').addEventListener('click', pararAlarme);
   $('#dlg-config').addEventListener('close', pararAlarme);
   // fechou uma janela com o alarme tocando: a barra volta para a página (ou para a janela de baixo)
-  $$('dialog').forEach(d => d.addEventListener('close', () => { if (alarme.ativo) posicionarBarraAlarme(); }));
+  $$('dialog').forEach(d => d.addEventListener('close', () => { if (alarme.ativo) posicionarBarraAlarme(); posicionarAvisos(); }));
 
   // Novidades: aulas, modo prova, resumo e compartilhar
   $('#form-aula').addEventListener('submit', salvarFormAula);
@@ -2219,6 +3109,19 @@ function registrarEventos() {
     Store.salvarConfig({ resumoDiario: e.target.checked });
     toast(e.target.checked ? '📋 O resumo vai aparecer todo dia' : 'Resumo diário desligado. Ele continua no botão “📋 Resumo do dia”.');
   });
+
+  // Matérias, flashcards, relatório, foco e calendário
+  registrarEventosMaterias();
+  $('#input-ics').addEventListener('change', lerArquivoIcs);
+  $('#btn-ics-importar').addEventListener('click', importarIcsSelecionados);
+  $('#foco-som').addEventListener('change', e => { Store.salvarConfig({ somFundo: e.target.value }); atualizarSomFundo(true); });
+  $('#foco-volume').addEventListener('input', e => {
+    $('#foco-volume-valor').textContent = `${e.target.value}%`;
+    Store.salvarConfig({ volumeFundo: Number(e.target.value) });
+    ajustarVolumeFundo();
+  });
+  $('#foco-rigido').addEventListener('change', e => Store.salvarConfig({ focoRigido: e.target.checked }));
+  document.addEventListener('visibilitychange', vigiarSaidaDoFoco);
 
   // Lembretes no formulário da tarefa
   $('#t-lembretes').addEventListener('change', atualizarDicaLembretes);
@@ -2272,11 +3175,55 @@ let pedidoInstalacao = null; // evento guardado para abrir a janela de instalaç
 const rodandoComoApp = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const ehIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
+/* ---------- Atualizações automáticas ----------
+   O app instalado fica "dormindo" em segundo plano e, ao voltar, mostra a mesma tela
+   (com o código antigo). Por isso ele procura versão nova ao abrir, ao voltar para
+   ele e a cada 30 minutos. Quando acha, troca sozinho se você não estiver no meio
+   de algo; senão, mostra o botão "Atualizar". */
+let atualizacaoPronta = false;
+function registrarAtualizacoes() {
+  const jaTinhaVersao = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+    const procurar = () => reg.update().catch(() => {});
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') procurar(); });
+    window.addEventListener('online', procurar);
+    setInterval(procurar, 30 * 60000);
+  }).catch(erro => console.warn('[PrazoCerto] Service worker não registrado', erro));
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!jaTinhaVersao || atualizacaoPronta) return; // 1ª instalação não é "atualização"
+    atualizacaoPronta = true;
+    aplicarAtualizacao();
+  });
+  mostrarVersao();
+}
+function podeRecarregarSozinho() {
+  return !$('dialog[open]') && !timer.rodando && !alarme.ativo && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA';
+}
+function aplicarAtualizacao() {
+  if (document.visibilityState === 'hidden' || podeRecarregarSozinho()) {
+    // app em segundo plano ou parado numa tela: troca na hora, sem perder nada (os dados ficam no aparelho)
+    if (document.visibilityState === 'hidden') { location.reload(); return; }
+    toast('🆕 PrazoCerto atualizado! Carregando a versão nova…', { duracao: 2500 });
+    setTimeout(() => location.reload(), 1200);
+    return;
+  }
+  toast('🆕 Tem uma versão nova do PrazoCerto.', { duracao: 60000, acao: 'Atualizar', aoClicar: () => location.reload() });
+  // se a pessoa sair do app, atualiza quando voltar
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') location.reload(); }, { once: true });
+}
+async function mostrarVersao() {
+  try {
+    const nomes = await caches.keys();
+    const v = nomes.map(n => (n.match(/^prazocerto-v(\d+)$/) || [])[1]).filter(Boolean).sort((a, b) => b - a)[0];
+    if (v) $('#versao-app').textContent = `Versão ${v}`;
+  } catch (_) { /* sem cache (aberto pelo arquivo) */ }
+}
+
 function prepararInstalacao() {
   const btn = $('#btn-instalar');
   // Guarda os arquivos no aparelho para abrir sem internet (só funciona em http/https, não em file://)
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-    navigator.serviceWorker.register('sw.js').catch(erro => console.warn('[PrazoCerto] Service worker não registrado', erro));
+    registrarAtualizacoes();
   }
   if (rodandoComoApp()) return; // já está instalado e aberto como app
 
@@ -2327,7 +3274,17 @@ function iniciar() {
     abrirTarefaPorId(id);
   });
   etapaSegura('tarefa compartilhada', verificarTarefaCompartilhada);
+  etapaSegura('atalhos do ícone', tratarAcaoDaUrl);
+  etapaSegura('relatório da semana', mostrarRelatorioSeNovaSemana);
   etapaSegura('resumo do dia', mostrarResumoSeNovoDia);
+  etapaSegura('foco extras', () => {
+    const c = Store.getConfig();
+    $('#foco-som').innerHTML = SONS_FUNDO.map(x => `<option value="${x.id}">${x.label}</option>`).join('');
+    $('#foco-som').value = c.somFundo;
+    $('#foco-volume').value = String(c.volumeFundo);
+    $('#foco-volume-valor').textContent = `${c.volumeFundo}%`;
+    $('#foco-rigido').checked = c.focoRigido;
+  });
 }
 
 document.addEventListener('DOMContentLoaded', iniciar);

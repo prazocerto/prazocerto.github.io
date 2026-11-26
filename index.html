@@ -74,6 +74,7 @@
           <li><a class="nav__link" href="#hoje" data-view="hoje"><span aria-hidden="true">🏠</span><span>Hoje</span></a></li>
           <li><a class="nav__link" href="#tarefas" data-view="tarefas"><span aria-hidden="true">✅</span><span>Tarefas</span><span class="badge" id="badge-atrasadas" hidden title="Tarefas atrasadas">0</span></a></li>
           <li><a class="nav__link" href="#agenda" data-view="agenda"><span aria-hidden="true">📅</span><span>Agenda</span></a></li>
+          <li><a class="nav__link" href="#materias" data-view="materias"><span aria-hidden="true">📒</span><span>Matérias</span></a></li>
           <li><a class="nav__link" href="#foco" data-view="foco"><span aria-hidden="true">🍅</span><span>Foco</span></a></li>
           <li><a class="nav__link" href="#progresso" data-view="progresso"><span aria-hidden="true">📊</span><span>Progresso</span></a></li>
         </ul>
@@ -225,6 +226,18 @@
     </section>
 
     <!-- ================= FOCO (POMODORO) ================= -->
+    <section class="view" id="view-materias" aria-labelledby="titulo-materias" hidden>
+      <div class="section-head">
+        <div>
+          <h1 id="titulo-materias">Matérias</h1>
+          <p class="sub">Notas, faltas, anotações e flashcards de cada matéria. Toque numa matéria para abrir.</p>
+        </div>
+        <button type="button" class="btn btn--ghost" data-acao="semestre">🗓️ Semestre</button>
+      </div>
+      <div id="semestre-card"></div>
+      <div class="materias-grade" id="materias-lista"></div>
+    </section>
+
     <section class="view" id="view-foco" aria-labelledby="titulo-foco" hidden>
       <div class="section-head">
         <div>
@@ -257,6 +270,18 @@
             <select id="timer-tarefa" class="select"><option value="">Sem tarefa específica</option></select>
           </div>
 
+          <details class="foco-extras">
+            <summary>🎧 Som de fundo e foco sem distração</summary>
+            <div class="foco-extras__corpo">
+              <div class="campos-2">
+                <div><label for="foco-som" class="field__label">Som de fundo</label><select id="foco-som" class="select"></select></div>
+                <div class="campo-volume"><label for="foco-volume" class="field__label">Volume: <output id="foco-volume-valor" for="foco-volume">40%</output></label><input type="range" id="foco-volume" min="5" max="100" step="5"></div>
+              </div>
+              <p class="field__hint">O som toca enquanto o foco estiver rodando e para nas pausas.</p>
+              <label class="switch"><input type="checkbox" id="foco-rigido"><span>🚫 Me chamar de volta se eu sair do app durante o foco</span></label>
+            </div>
+          </details>
+
           <div class="timer__botoes">
             <button type="button" class="btn btn--ghost" id="timer-reiniciar" aria-label="Reiniciar timer">↺ Reiniciar</button>
             <button type="button" class="btn btn--primary btn--lg btn--play" id="timer-iniciar">▶ Iniciar</button>
@@ -264,6 +289,8 @@
           </div>
           <p class="timer__status" id="timer-status" aria-live="polite"></p>
         </section>
+
+        <section class="card estudando-agora" id="estudando-agora" aria-labelledby="titulo-estudando" hidden></section>
 
         <section class="card foco-hoje" aria-labelledby="titulo-foco-hoje">
           <h2 id="titulo-foco-hoje" class="card__title">🍅 Foco de hoje</h2>
@@ -365,6 +392,9 @@
         <textarea id="t-descricao" class="input" rows="2" maxlength="400" placeholder="Conteúdo, links, materiais…"></textarea>
       </div>
 
+      <input type="hidden" id="t-grupo-id">
+      <div class="grupo-box" id="t-grupo"></div>
+
       <div class="modo-prova" id="t-modo-prova" hidden>
         <div>
           <strong>📚 Modo prova</strong>
@@ -407,7 +437,7 @@
       <button type="button" class="modal__close" data-fechar aria-label="Fechar">✕</button>
       <h2 id="config-titulo">⚙️ Configurações</h2>
 
-      <form id="form-config" class="config-sec">
+      <form id="form-config" class="config-sec" novalidate>
         <h3 id="titulo-conta">☁️ Conta e sincronização</h3>
         <div class="conta-nuvem" id="conta-nuvem" aria-live="polite"></div>
 
@@ -421,16 +451,35 @@
           <div><label for="cfg-curta" class="field__label">Pausa curta</label><input type="number" id="cfg-curta" class="input" min="1" max="30"></div>
           <div><label for="cfg-longa" class="field__label">Pausa longa</label><input type="number" id="cfg-longa" class="input" min="5" max="60" step="5"></div>
         </div>
-        <label class="switch"><input type="checkbox" id="cfg-atalhos" aria-describedby="atalhos-dica"><span>⌨️ Atalhos de teclado de uma tecla (N, T, 1–5, /, ?)</span></label>
+        <label class="switch"><input type="checkbox" id="cfg-atalhos" aria-describedby="atalhos-dica"><span>⌨️ Atalhos de teclado de uma tecla (N, T, 1–6, /, ?)</span></label>
         <p class="field__hint" id="atalhos-dica">Desligue se você usa leitor de tela ou comandos de voz e as teclas sozinhas atrapalham.</p>
 
         <h3>Rotina</h3>
-        <label class="switch"><input type="checkbox" id="cfg-resumo"><span>📋 Mostrar o resumo do dia na primeira vez que eu abrir o app</span></label>
-        <div class="campos-2 campos-janela">
-          <div><label for="cfg-estudo-inicio" class="field__label">Estudo a partir de</label><input type="time" id="cfg-estudo-inicio" class="input"></div>
-          <div><label for="cfg-estudo-fim" class="field__label">até</label><input type="time" id="cfg-estudo-fim" class="input"></div>
+        <label class="switch"><input type="checkbox" id="cfg-resumo"><span>📋 Ao abrir o app pela 1ª vez no dia, mostrar o resumo do dia</span></label>
+        <label class="switch"><input type="checkbox" id="cfg-relatorio"><span>📊 Ao abrir o app pela 1ª vez na semana, mostrar como foi a semana passada</span></label>
+        <fieldset class="campo campo-solto">
+          <legend class="field__label">Que horas você costuma poder estudar?</legend>
+          <div class="campos-2 campos-janela">
+            <div><label for="cfg-estudo-inicio" class="field__sublabel">Das</label><input type="time" id="cfg-estudo-inicio" class="input"></div>
+            <div><label for="cfg-estudo-fim" class="field__sublabel">Até</label><input type="time" id="cfg-estudo-fim" class="input"></div>
+          </div>
+          <p class="field__hint">Na Agenda, o app mostra os horários livres dentro desse período, já tirando as aulas. Ex.: se você trabalha até as 18h, coloque das 18:00 às 23:00.</p>
+        </fieldset>
+
+        <h3>Semestre e notas</h3>
+        <div class="campos-3">
+          <div><label for="cfg-sem-inicio" class="field__label">Começo do semestre</label><input type="date" id="cfg-sem-inicio" class="input"></div>
+          <div><label for="cfg-sem-fim" class="field__label">Fim do semestre</label><input type="date" id="cfg-sem-fim" class="input"></div>
+          <div><label for="cfg-media" class="field__label">Média para passar</label><input type="number" id="cfg-media" class="input" min="0" max="10" step="0.5" inputmode="decimal"></div>
         </div>
-        <p class="field__hint" style="margin:0">Usado para sugerir horários livres de estudo, sem contar as aulas.</p>
+        <p class="field__hint" style="margin:0">Com as datas do semestre e o horário das aulas, o app calcula sozinho quantas faltas você ainda pode ter em cada matéria (mínimo de 75% de presença).</p>
+
+        <h3>Metas da semana</h3>
+        <div class="campos-2">
+          <div><label for="cfg-meta-foco" class="field__label">Horas de foco por semana</label><input type="number" id="cfg-meta-foco" class="input" min="0" max="80" step="0.5" inputmode="decimal"></div>
+          <div><label for="cfg-meta-tarefas" class="field__label">Tarefas concluídas por semana</label><input type="number" id="cfg-meta-tarefas" class="input" min="0" max="200" step="1" inputmode="numeric"></div>
+        </div>
+        <p class="field__hint" style="margin:0">A semana vai de segunda a domingo. Coloque 0 para não usar uma das metas.</p>
 
         <h3>Som do alarme</h3>
         <p class="field__hint" style="margin:0">Toca no fim de cada ciclo do Pomodoro e nos lembretes de prazo.</p>
@@ -480,12 +529,15 @@
 
       <section class="config-sec" aria-labelledby="dados-titulo">
         <h3 id="dados-titulo">Seus dados</h3>
+        <p class="field__hint" style="margin:0 0 8px">O arquivo de calendário (.ics) pode vir do Google Agenda (Configurações → Importar e exportar → Exportar), do Outlook ou do calendário do AVA/Moodle. As provas e entregas viram tarefas.</p>
         <div class="botoes-linha">
           <button type="button" class="btn btn--ghost btn--sm" id="btn-exportar">⬇️ Baixar backup</button>
           <label class="btn btn--ghost btn--sm">⬆️ Restaurar backup<input type="file" id="input-importar" accept="application/json,.json" class="sr-only"></label>
+          <label class="btn btn--ghost btn--sm">📅 Importar calendário (.ics)<input type="file" id="input-ics" accept=".ics,text/calendar" class="sr-only"></label>
           <button type="button" class="btn btn--ghost btn--sm" data-acao="exemplo">🧪 Carregar exemplo</button>
           <button type="button" class="btn btn--danger-ghost btn--sm" id="btn-apagar-tudo">🗑️ Apagar tudo</button>
         </div>
+        <p class="field__hint versao-app" id="versao-app" style="margin:14px 0 0;text-align:center"></p>
       </section>
     </div>
   </dialog>
@@ -557,6 +609,73 @@
     </div>
   </dialog>
 
+  <dialog class="modal modal--materia" id="dlg-materia" aria-labelledby="materia-titulo">
+    <div class="modal__body">
+      <button type="button" class="modal__close" data-fechar aria-label="Fechar">✕</button>
+      <h2 id="materia-titulo" class="materia-titulo"></h2>
+      <div class="abas" role="tablist" aria-label="Partes da matéria">
+        <button type="button" role="tab" id="aba-notas" aria-controls="painel-notas" aria-selected="true">📝 Notas</button>
+        <button type="button" role="tab" id="aba-faltas" aria-controls="painel-faltas" aria-selected="false" tabindex="-1">🙋 Faltas</button>
+        <button type="button" role="tab" id="aba-anotacoes" aria-controls="painel-anotacoes" aria-selected="false" tabindex="-1">🗒️ Anotações</button>
+        <button type="button" role="tab" id="aba-cartas" aria-controls="painel-cartas" aria-selected="false" tabindex="-1">🃏 Flashcards</button>
+      </div>
+      <div class="aba-painel" role="tabpanel" id="painel-notas" aria-labelledby="aba-notas"></div>
+      <div class="aba-painel" role="tabpanel" id="painel-faltas" aria-labelledby="aba-faltas" hidden></div>
+      <div class="aba-painel" role="tabpanel" id="painel-anotacoes" aria-labelledby="aba-anotacoes" hidden>
+        <label for="anotacoes-texto" class="sr-only">Anotações da matéria</label>
+        <textarea id="anotacoes-texto" class="input textarea-anotacoes" rows="12" placeholder="Resumos, fórmulas, links do material, o que o professor disse que cai na prova…"></textarea>
+        <p class="field__hint" id="anotacoes-status" aria-live="polite">Salva sozinho enquanto você digita.</p>
+      </div>
+      <div class="aba-painel" role="tabpanel" id="painel-cartas" aria-labelledby="aba-cartas" hidden></div>
+    </div>
+  </dialog>
+
+  <dialog class="modal modal--estudar" id="dlg-estudar" aria-labelledby="estudar-titulo">
+    <div class="modal__body">
+      <button type="button" class="modal__close" data-fechar aria-label="Fechar">✕</button>
+      <p class="eyebrow" id="estudar-progresso"></p>
+      <h2 id="estudar-titulo" class="sr-only">Estudar flashcards</h2>
+      <div class="carta" id="carta" aria-live="polite">
+        <div class="carta__frente" id="carta-frente"></div>
+        <div class="carta__verso" id="carta-verso" hidden></div>
+      </div>
+      <div class="botoes-linha estudar-botoes" id="estudar-botoes"></div>
+      <p class="field__hint estudar-dica">Atalhos: <kbd>Espaço</kbd> mostra a resposta, <kbd>1</kbd> errei, <kbd>2</kbd> acertei.</p>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="dlg-relatorio" aria-labelledby="relatorio-titulo">
+    <div class="modal__body">
+      <button type="button" class="modal__close" data-fechar aria-label="Fechar">✕</button>
+      <p class="eyebrow" id="relatorio-periodo"></p>
+      <h2 id="relatorio-titulo">📊 Como foi a sua semana</h2>
+      <div id="relatorio-conteudo"></div>
+      <div class="modal__actions"><button type="button" class="btn btn--primary" data-fechar>Bora pra próxima! 🚀</button></div>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="dlg-ics" aria-labelledby="ics-titulo">
+    <div class="modal__body">
+      <button type="button" class="modal__close" data-fechar aria-label="Fechar">✕</button>
+      <h2 id="ics-titulo">📅 Importar do calendário</h2>
+      <p class="modal__sub" id="ics-sub"></p>
+      <div class="ics-lista" id="ics-lista"></div>
+      <div class="modal__actions">
+        <button type="button" class="btn btn--text" data-fechar>Cancelar</button>
+        <button type="button" class="btn btn--primary" id="btn-ics-importar">Importar selecionados</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="dlg-convite" aria-labelledby="convite-titulo">
+    <div class="modal__body">
+      <button type="button" class="modal__close" data-fechar aria-label="Fechar">✕</button>
+      <h2 id="convite-titulo"></h2>
+      <div id="convite-conteudo"></div>
+      <div class="modal__actions" id="convite-acoes"></div>
+    </div>
+  </dialog>
+
   <dialog class="modal" id="dlg-nuvem" aria-labelledby="nuvem-titulo">
     <div class="modal__body">
       <h2 id="nuvem-titulo">☁️ Como juntar suas tarefas?</h2>
@@ -586,6 +705,11 @@
         <li><strong>Tarefas que se repetem</strong> (🔁): ao concluir uma lista semanal, a próxima já aparece com o novo prazo.</li>
         <li><strong>Cadastre suas aulas</strong> na Agenda: elas aparecem em cada dia e o app mostra os horários livres para estudar.</li>
         <li><strong>Modo prova:</strong> numa tarefa do tipo Prova, toque em <em>Criar plano de revisão</em> e o app divide o estudo pelos dias que faltam.</li>
+        <li><strong>Matérias:</strong> calcule quanto precisa tirar para passar, controle as faltas (75% de presença), guarde anotações e estude com flashcards.</li>
+        <li><strong>Fazer agora:</strong> a tela Hoje mostra as 3 tarefas mais importantes para começar.</li>
+        <li><strong>Metas da semana</strong> e o <strong>relatório da semana</strong> ficam no Progresso.</li>
+        <li><strong>Som de fundo</strong> (chuva, mar, ruído) e o aviso para voltar ao foco ficam na tela Foco.</li>
+        <li><strong>Com a conta Google:</strong> faça <strong>trabalhos em grupo em tempo real</strong> (cada um marca a sua parte), compare a semana no <strong>ranking dos amigos</strong> e veja na tela Foco quem está <strong>estudando agora</strong> para focar junto.</li>
         <li><strong>Entre com o Google</strong> em ⚙️ Configurações para ter as mesmas tarefas no celular e no computador (sincroniza na hora).</li>
         <li><strong>Compartilhe</strong> uma tarefa (📤) com o grupo pelo WhatsApp: quem abrir o link adiciona no app dele.</li>
         <li><strong>Ative os avisos</strong> em ⚙️ Configurações e escolha, em cada tarefa, quando ser lembrado (na hora, 15 min, 30 min, 1 hora…). Dá para escolher o toque, o volume e quantas vezes ele repete.</li>

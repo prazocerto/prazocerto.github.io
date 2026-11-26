@@ -88,6 +88,19 @@ prazocerto/
 | 📋 **Resumo do dia** | Na primeira abertura do dia: atrasadas, aulas de hoje, o que vence hoje e amanhã, revisão de prova e a sequência de dias. Pode ser desligado e também aberto pelo botão 📋 |
 | 📤 **Compartilhar tarefa** | Gera um link com a tarefa (título, prazo, matéria, etapas e anotações) para mandar no WhatsApp do grupo. Quem abre vê a prévia e adiciona no PrazoCerto dele. Funciona sem servidor: a tarefa vai dentro do próprio link (JSON em base64), e tudo que vem do link é validado e escapado |
 | ☁️ **Conta e sincronização** | Login com Google (Firebase Authentication) e sincronização em tempo real entre celular e computador (Cloud Firestore). Sem internet, as mudanças ficam pendentes e sobem quando a conexão volta. Na primeira vez num aparelho que já tem tarefas, o app pergunta se junta, usa só as da conta ou só as do aparelho. Sem conta, tudo continua funcionando só no aparelho |
+| 📒 **Matérias** | Tela própria com um cartão por matéria e uma janela com 4 abas: **Notas** (calculadora com pesos: mostra quanto precisa tirar nas avaliações que faltam, se já passou ou se precisa de recuperação), **Faltas** (limite automático de 25% das aulas do semestre, calculado pelo horário cadastrado, com barra e alertas), **Anotações** (salvam sozinhas) e **Flashcards** (repetição espaçada em 5 caixas: quem erra volta logo, quem acerta demora mais) |
+| 🙋 **Faltei** | No cartão "Aulas de hoje", um toque registra a falta e mostra quantas ainda pode ter |
+| 🎯 **Fazer agora** | A tela Hoje escolhe as 3 tarefas mais importantes, pesando prazo, prioridade, tempo e revisão de prova, e mostra o porquê de cada uma |
+| 🗓️ **Semestre** | Datas de começo e fim: barra de progresso, dias para as férias, próximas provas e limite de faltas automático |
+| 🎯 **Metas da semana** | Horas de foco e tarefas concluídas (segunda a domingo), com barras no Progresso e a conquista "Meta batida" |
+| 📊 **Relatório da semana** | Na primeira abertura da semana: horas de foco, tarefas, pontualidade e Pomodoros, comparação com a semana anterior, matéria mais estudada, matéria esquecida e dicas |
+| 🎧 **Sons de fundo** | Chuva, ondas do mar, ruído marrom e ruído branco, gerados com Web Audio (sem arquivos). Tocam só com o foco rodando, com volume próprio |
+| 🚫 **Foco sem distração** | Se a pessoa sai do app durante o foco, recebe uma notificação para voltar e, ao voltar, vê quanto tempo ficou fora. As saídas entram no relatório da semana |
+| 📲 **Atalhos do ícone** | Segurando o ícone do app instalado: Nova tarefa, Começar foco, Flashcards e Agenda. O app também aparece no menu "Compartilhar" do celular: um texto compartilhado de outro app (ex.: mensagem do grupo) vira tarefa |
+| 📅 **Importar calendário** | Arquivo .ics do Google Agenda, Outlook ou AVA/Moodle: provas e entregas viram tarefas, com tipo e matéria reconhecidos pelo nome e sem duplicar |
+| 👥 **Trabalho em grupo em tempo real** | Uma tarefa vira compartilhada: o grupo entra pelo link, cada um usa "✋ Eu faço" para pegar etapas, e o que alguém marca aparece na hora para todos, com aviso de quem fez. Mudanças ao mesmo tempo são juntadas sem perder nada (transação + junção por etapa) |
+| 🏆 **Ranking dos amigos** | Convite por link; a amizade vale para os dois lados. Pontos da semana = minutos de foco + 20 por tarefa concluída, e zera toda segunda |
+| 🟢 **Estudando agora** | Na tela Foco, os amigos que estão focando naquele momento e o botão **Focar junto**, que começa um foco terminando na mesma hora |
 | 🌙 **Tema** | Claro e escuro. Respeita o tema do sistema na primeira visita e fica salvo |
 
 ### 🎨 Cores de prioridade e prazo
@@ -186,8 +199,9 @@ Escreva tudo numa linha, por exemplo: `Lista de Cálculo amanhã 23:59 !alta #ca
 - Ao entrar com o Google, o módulo `js/nuvem.js` baixa o Firebase (só nessa hora, pela CDN oficial) e guarda uma cópia dos dados no documento `usuarios/{uid}` do Firestore.
 - Cada mudança é enviada 1,5 s depois. Os outros aparelhos recebem na hora (`onSnapshot`) e a tela se atualiza sozinha.
 - Som, volume e avisos ficam por aparelho; tarefas, matérias, aulas, sessões de foco, conquistas e preferências gerais sincronizam.
-- **Segurança:** as regras em `firestore.rules` só deixam cada pessoa ler e gravar o próprio documento. A `apiKey` do Firebase não é secreta: ela só identifica o projeto, e quem protege os dados são as regras.
+- **Social:** `perfis/{uid}` guarda nome, foto, números da semana, se está focando e a lista de amigos (qualquer pessoa logada lê; só o dono grava). `grupos/{id}` guarda os trabalhos em grupo: quem tem o link vê a prévia e só pode se adicionar; só membros editam e listam.
+- **Segurança:** as regras em `firestore.rules` só deixam cada pessoa ler e gravar o próprio documento de tarefas. A `apiKey` do Firebase não é secreta: ela só identifica o projeto, e quem protege os dados são as regras.
 
 ## 💾 Chaves no LocalStorage
 
-`prazocerto:tarefas` · `prazocerto:materias` · `prazocerto:sessoes` · `prazocerto:aulas` · `prazocerto:resumo` · `prazocerto:nuvem` · `prazocerto:aparelho` · `prazocerto:config` · `prazocerto:tema` · `prazocerto:timer` · `prazocerto:conquistas` · `prazocerto:avisos`
+`prazocerto:tarefas` · `prazocerto:materias` · `prazocerto:sessoes` · `prazocerto:aulas` · `prazocerto:estudo` · `prazocerto:resumo` · `prazocerto:relatorio` · `prazocerto:nuvem` · `prazocerto:aparelho` · `prazocerto:config` · `prazocerto:tema` · `prazocerto:timer` · `prazocerto:conquistas` · `prazocerto:avisos`

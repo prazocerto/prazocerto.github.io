@@ -1,18 +1,65 @@
 rules_version = '2';
 
 // Regras do Firestore do PrazoCerto
-// Cada pessoa só pode ler e gravar o PRÓPRIO documento (usuarios/{uid}).
-// O documento guarda as tarefas como texto JSON (campo "json").
+// - usuarios/{uid}: as tarefas de cada pessoa. Só a própria pessoa lê e grava.
+// - perfis/{uid}:   nome, foto e números da semana (ranking e "estudando agora").
+//                   Qualquer pessoa logada pode ler; só o dono grava.
+// - grupos/{id}:    trabalhos em grupo. Quem tem o link (o id é secreto e aleatório)
+//                   vê a prévia e pode se adicionar; só membros editam e listam.
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function logado() { return request.auth != null; }
+    function eu() { return request.auth.uid; }
+
     match /usuarios/{uid} {
-      allow read, delete: if request.auth != null && request.auth.uid == uid;
-      allow create, update: if request.auth != null && request.auth.uid == uid
+      allow read, delete: if logado() && eu() == uid;
+      allow create, update: if logado() && eu() == uid
         && request.resource.data.keys().hasOnly(['json', 'atualizadoEm', 'aparelho', 'versao'])
         && request.resource.data.json is string
         && request.resource.data.json.size() < 900000
         && request.resource.data.aparelho is string;
     }
+
+    match /perfis/{uid} {
+      allow read: if logado();
+      allow create, update: if logado() && eu() == uid
+        && request.resource.data.keys().hasOnly(['nome', 'foto', 'semana', 'focoSemanaMin', 'tarefasSemana', 'xp', 'nivel',
+                                                  'focandoAte', 'focandoMateria', 'amigos', 'atualizadoEm'])
+        && request.resource.data.nome is string && request.resource.data.nome.size() <= 40
+        && request.resource.data.amigos is list && request.resource.data.amigos.size() <= 100;
+      allow delete: if logado() && eu() == uid;
+    }
+
+    match /grupos/{gid} {
+      function membro() { return eu() in resource.data.membrosIds; }
+      function grupoValido() {
+        return request.resource.data.membrosIds is list
+          && request.resource.data.membrosIds.size() <= 30
+          && request.resource.data.etapas is list
+          && request.resource.data.etapas.size() <= 50
+          && request.resource.data.titulo is string
+          && request.resource.data.titulo.size() <= 80;
+      }
+      // ver um grupo pelo link (prévia do convite)
+      allow get: if logado();
+      // listar só os grupos de que a pessoa faz parte
+      allow list: if logado() && eu() in resource.data.membrosIds;
+      allow create: if logado() && grupoValido()
+        && request.resource.data.criadoPor == eu()
+        && request.resource.data.membrosIds == [eu()];
+      allow update: if logado() && grupoValido() && (
+        // membros editam (etapas, título, prazo, sair do grupo)
+        membro()
+        // quem não é membro só pode se adicionar e nada mais
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['membros', 'membrosIds', 'atualizadoEm'])
+            && request.resource.data.membrosIds.hasAll(resource.data.membrosIds)
+            && request.resource.data.membrosIds.size() == resource.data.membrosIds.size() + 1
+            && eu() in request.resource.data.membrosIds)
+      );
+      allow delete: if logado() && resource.data.criadoPor == eu();
+    }
+
     // qualquer outro caminho: bloqueado
     match /{documento=**} {
       allow read, write: if false;
