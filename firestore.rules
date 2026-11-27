@@ -6,11 +6,21 @@ rules_version = '2';
 //                   Qualquer pessoa logada pode ler; só o dono grava.
 // - grupos/{id}:    trabalhos em grupo. Quem tem o link (o id é secreto e aleatório)
 //                   vê a prévia e pode se adicionar; só membros editam e listam.
+// - presenca/{uid}: acessos para o painel de admin (anônimos: origem, aparelho e
+//                   números de uso, nunca o conteúdo). Cada um grava o seu; só o admin lê.
+// - app/aviso:      aviso para todos. Todo mundo lê; só o admin publica.
+//
+// >>> TROQUE "SEU-EMAIL-DE-ADMIN@gmail.com" PELO E-MAIL DA SUA CONTA GOOGLE DE ADMIN <<<
 service cloud.firestore {
   match /databases/{database}/documents {
 
     function logado() { return request.auth != null; }
     function eu() { return request.auth.uid; }
+    function admin() {
+      return request.auth != null
+        && request.auth.token.email == 'SEU-EMAIL-DE-ADMIN@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
 
     match /usuarios/{uid} {
       allow read, delete: if logado() && eu() == uid;
@@ -43,8 +53,8 @@ service cloud.firestore {
       }
       // ver um grupo pelo link (prévia do convite)
       allow get: if logado();
-      // listar só os grupos de que a pessoa faz parte
-      allow list: if logado() && eu() in resource.data.membrosIds;
+      // listar só os grupos de que a pessoa faz parte (o admin pode contar todos)
+      allow list: if admin() || (logado() && eu() in resource.data.membrosIds);
       allow create: if logado() && grupoValido()
         && request.resource.data.criadoPor == eu()
         && request.resource.data.membrosIds == [eu()];
@@ -58,6 +68,22 @@ service cloud.firestore {
             && eu() in request.resource.data.membrosIds)
       );
       allow delete: if logado() && resource.data.criadoPor == eu();
+    }
+
+    match /presenca/{uid} {
+      allow read: if admin();
+      allow create, update: if logado() && eu() == uid
+        && request.resource.data.keys().hasOnly(['ultimoAcesso', 'primeiraVisita', 'dias', 'origem', 'origemUltima', 'aparelho', 'sistema',
+                                                  'navegador', 'instalado', 'versao', 'logado', 'tela', 'focando', 'contagens', 'visitas'])
+        && request.resource.data.dias is list && request.resource.data.dias.size() <= 90
+        && request.resource.data.origem is string && request.resource.data.origem.size() <= 40;
+      allow delete: if logado() && eu() == uid;
+    }
+
+    match /app/aviso {
+      allow read: if true;
+      allow write: if admin()
+        && request.resource.data.texto is string && request.resource.data.texto.size() <= 280;
     }
 
     // qualquer outro caminho: bloqueado

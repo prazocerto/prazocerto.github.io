@@ -15,16 +15,7 @@
  * só deixam cada pessoa ler e gravar o próprio documento.
  * ========================================================= */
 
-const FIREBASE_CONFIG = {
-  apiKey: 'AIzaSyC35fxaCjcWTMZ98pPOlNeozwdkbuNVMy0',
-  authDomain: 'prazocerto-estudos.firebaseapp.com',
-  projectId: 'prazocerto-estudos',
-  storageBucket: 'prazocerto-estudos.firebasestorage.app',
-  messagingSenderId: '870390730109',
-  appId: '1:870390730109:web:846758ac44f2d6a4c6d014'
-};
-const VERSAO_SDK = '13.4.0';
-const CDN = `https://www.gstatic.com/firebasejs/${VERSAO_SDK}/`;
+import { FIREBASE_CONFIG, CDN } from './firebase-config.js';
 const CHAVE_META = 'prazocerto:nuvem';      // { uid, pendente, ultimaSync }
 const CHAVE_APARELHO = 'prazocerto:aparelho'; // identifica este aparelho
 const LIMITE_BYTES = 900000;                // documento do Firestore aceita até ~1 MB
@@ -32,7 +23,8 @@ const LIMITE_BYTES = 900000;                // documento do Firestore aceita at�
 /* ---------- Estado ---------- */
 let fb = null;            // funções do SDK
 let auth = null, db = null;
-let usuario = null;
+let usuario = null;      // conta Google (null para visitante anônimo)
+let contaFirebase = null; // conta atual no Firebase (anônima ou Google), usada para contar acessos
 let refDoc = null;
 let pararOuvinte = null;
 let timerEnvio = null;
@@ -74,13 +66,30 @@ async function entrar() {
     await carregarSDK();
     const provedor = new fb.GoogleAuthProvider();
     provedor.setCustomParameters({ prompt: 'select_account' });
+    const atual = auth.currentUser;
     try {
-      await fb.signInWithPopup(auth, provedor);
+      if (atual && atual.isAnonymous) {
+        // o visitante anônimo vira a conta Google (mantém o mesmo histórico de acessos)
+        try {
+          const r = await fb.linkWithPopup(atual, provedor);
+          await completarPerfil(r.user);
+          aoMudarUsuario(auth.currentUser); // vincular não dispara o aviso de troca de conta
+        } catch (erro) {
+          if (!['auth/credential-already-in-use', 'auth/email-already-in-use'].includes(erro.code)) throw erro;
+          // essa conta Google já existe (entrou antes em outro aparelho): entra nela
+          const cred = fb.GoogleAuthProvider.credentialFromError(erro);
+          await apagarPresenca(atual.uid);
+          if (cred) await fb.signInWithCredential(auth, cred); else await fb.signInWithPopup(auth, provedor);
+        }
+      } else {
+        await fb.signInWithPopup(auth, provedor);
+      }
     } catch (erro) {
       // celular que bloqueia janela extra: entra redirecionando a página
       if (['auth/popup-blocked', 'auth/operation-not-supported-in-this-environment'].includes(erro.code)) {
         gravarMeta({ redirecionando: true });
-        await fb.signInWithRedirect(auth, provedor);
+        if (atual && atual.isAnonymous) await fb.linkWithRedirect(atual, provedor);
+        else await fb.signInWithRedirect(auth, provedor);
         return;
       }
       throw erro;
@@ -88,6 +97,14 @@ async function entrar() {
   } catch (erro) {
     tratarErro(erro);
     if (!usuario) mudarStatus('deslogado');
+  }
+}
+
+/** Depois de vincular, copia nome e foto do Google para a conta (se ainda estiverem vazios). */
+async function completarPerfil(u) {
+  const g = (u.providerData || []).find(p => p.providerId === 'google.com');
+  if (g && (!u.displayName || !u.photoURL) && fb.updateProfile) {
+    try { await fb.updateProfile(u, { displayName: u.displayName || g.displayName, photoURL: u.photoURL || g.photoURL }); } catch (_) {}
   }
 }
 
@@ -120,6 +137,10 @@ function tratarErro(erro) {
 
 /* ---------- Quando a conta muda (entrou, saiu, voltou ao abrir o app) ---------- */
 async function aoMudarUsuario(u) {
+  contaFirebase = u;
+  if (u) iniciarPresenca();
+  else entrarAnonimo(); // visitante sem conta: conta anônima (só para contar acessos)
+  if (u && u.isAnonymous) u = null;
   usuario = u;
   if (!u) {
     if (pararOuvinte) { pararOuvinte(); pararOuvinte = null; }
@@ -328,6 +349,7 @@ function renderConta() {
     <div class="botoes-linha">
       <button type="button" class="btn btn--ghost btn--sm" data-nuvem="sincronizar">🔄 Sincronizar agora</button>
       <button type="button" class="btn btn--text btn--sm" data-nuvem="sair">Sair da conta</button>
+      ${localStorage.getItem('prazocerto:admin') === usuario.uid ? '<a class="btn btn--primary btn--sm" href="admin.html">🛠️ Painel admin</a>' : ''}
     </div>`;
 }
 
@@ -386,6 +408,7 @@ async function copiarTexto(texto) {
 
 /* ---------- Perfil público (o que os amigos veem) ---------- */
 function publicarPerfil() {
+  if (contaFirebase && db) agendarPresenca(1500);
   if (!usuario || !db) return;
   clearTimeout(timerPerfil);
   timerPerfil = setTimeout(enviarPerfil, 1200);
@@ -829,6 +852,166 @@ async function enviarGrupos() {
   finally { enviandoGrupos = false; }
 }
 
+/* =========================================================
+ * ACESSOS (para o painel de admin)
+ * ---------------------------------------------------------
+ * Cada visitante tem uma conta anônima (sem nome, sem e-mail).
+ * O app grava em presenca/{uid}: quando acessou, de onde veio,
+ * tipo de aparelho e só NÚMEROS de uso (quantas tarefas, minutos
+ * de foco…). Nunca o conteúdo das tarefas. Só o admin lê.
+ * ========================================================= */
+let timerPresenca = null, ultimaPresenca = 0, presencaIniciada = false, pararAviso = null;
+const CHAVE_ORIGEM = 'prazocerto:origem';
+const CHAVE_DIAS = 'prazocerto:dias';
+const CHAVE_PRIMEIRA = 'prazocerto:primeira-visita';
+const CHAVE_VISITAS = 'prazocerto:visitas';
+
+async function entrarAnonimo() {
+  if (!auth || auth.currentUser || !navigator.onLine) return;
+  try { await fb.signInAnonymously(auth); } catch (_) { /* login anônimo desligado no Firebase: segue sem contar */ }
+}
+
+/** De onde veio esta visita (link com ?ref=, convite, app do Instagram, site que mandou…). */
+function origemDestaVisita() {
+  const entrada = window.__entrada || { busca: location.search, referrer: document.referrer };
+  const p = new URLSearchParams(entrada.busca || '');
+  const ref = (p.get('ref') || p.get('utm_source') || '').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 30);
+  if (ref) return ref;
+  if (p.get('amigo')) return 'convite-amigo';
+  if (p.get('grupo')) return 'convite-grupo';
+  if (p.get('tarefa')) return 'tarefa-compartilhada';
+  const ua = navigator.userAgent;
+  if (/Instagram/i.test(ua)) return 'instagram';
+  if (/FBAN|FBAV/i.test(ua)) return 'facebook';
+  if (/musical_ly|Bytedance|TikTok/i.test(ua)) return 'tiktok';
+  if (/WhatsApp/i.test(ua)) return 'whatsapp';
+  let host = '';
+  try { host = entrada.referrer ? new URL(entrada.referrer).hostname.replace(/^www\./, '') : ''; } catch (_) {}
+  if (!host || host === location.hostname) return '';
+  if (/instagram/.test(host)) return 'instagram';
+  if (/(^|\.)google\./.test(host)) return 'google';
+  if (/whatsapp|wa\.me/.test(host)) return 'whatsapp';
+  if (/facebook|fb\.com/.test(host)) return 'facebook';
+  if (/(^|\.)t\.co$|twitter|x\.com/.test(host)) return 'x';
+  if (/tiktok/.test(host)) return 'tiktok';
+  if (/github/.test(host)) return 'github';
+  if (/youtube/.test(host)) return 'youtube';
+  return host.slice(0, 40);
+}
+
+function infoAparelho() {
+  const ua = navigator.userAgent;
+  const tablet = /iPad|Tablet/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const sistema = /Android/i.test(ua) ? 'Android' : /iPhone|iPad|iPod/i.test(ua) || tablet ? 'iOS' : /Windows/i.test(ua) ? 'Windows'
+    : /Mac OS/i.test(ua) ? 'Mac' : /CrOS/i.test(ua) ? 'ChromeOS' : /Linux/i.test(ua) ? 'Linux' : 'Outro';
+  const navegador = /Instagram/i.test(ua) ? 'Instagram' : /SamsungBrowser/i.test(ua) ? 'Samsung' : /Edg\//i.test(ua) ? 'Edge'
+    : /OPR\//i.test(ua) ? 'Opera' : /Firefox/i.test(ua) ? 'Firefox' : /Chrome|CriOS/i.test(ua) ? 'Chrome' : /Safari/i.test(ua) ? 'Safari' : 'Outro';
+  return { aparelho: tablet ? 'tablet' : /Mobi|Android|iPhone/i.test(ua) ? 'celular' : 'computador', sistema, navegador, instalado: rodandoComoApp() };
+}
+
+/** Guarda a origem da 1ª visita e conta as visitas (no próprio aparelho). */
+function prepararDadosDeVisita() {
+  const agora = origemDestaVisita();
+  if (!localStorage.getItem(CHAVE_ORIGEM)) localStorage.setItem(CHAVE_ORIGEM, agora || 'direto');
+  if (!localStorage.getItem(CHAVE_PRIMEIRA)) localStorage.setItem(CHAVE_PRIMEIRA, String(Date.now()));
+  localStorage.setItem(CHAVE_VISITAS, String(Number(localStorage.getItem(CHAVE_VISITAS) || 0) + 1));
+  return agora;
+}
+const origemAgora = (() => { try { return prepararDadosDeVisita(); } catch (_) { return ''; } })();
+// o ?ref= já foi anotado: sai do endereço para não ir junto quando a pessoa compartilhar o link
+(() => {
+  const p = new URLSearchParams(location.search);
+  if (!['ref', 'utm_source'].some(k => p.has(k))) return;
+  ['ref', 'utm_source', 'utm_medium', 'utm_campaign'].forEach(k => p.delete(k));
+  history.replaceState(null, '', location.pathname + (p.toString() ? `?${p}` : '') + location.hash);
+})();
+
+function diasDeUso() {
+  let dias = [];
+  try { dias = JSON.parse(localStorage.getItem(CHAVE_DIAS)) || []; } catch (_) {}
+  const hoje = dataISO(new Date());
+  if (!dias.includes(hoje)) dias.push(hoje);
+  dias = dias.slice(-90);
+  localStorage.setItem(CHAVE_DIAS, JSON.stringify(dias));
+  return dias;
+}
+
+function contagensDeUso() {
+  const t = Store.getTarefas(), e = Object.values(Store.getEstudoTudo()), sessoes = Store.getSessoes();
+  return {
+    tarefas: t.length, concluidas: t.filter(x => x.concluida).length,
+    focoMin: sessoes.reduce((a, x) => a + x.minutos, 0), sessoes: sessoes.length,
+    aulas: Store.getAulas().length, cartas: e.reduce((a, x) => a + x.flashcards.length, 0),
+    materiasNotas: e.filter(x => x.avaliacoes.length).length, grupos: t.filter(x => x.grupoId).length
+  };
+}
+
+async function versaoInstalada() {
+  try { return Number(((await caches.keys()).map(n => (n.match(/^prazocerto-v(\d+)$/) || [])[1]).filter(Boolean).sort((a, b) => b - a)[0]) || 0); }
+  catch (_) { return 0; }
+}
+
+async function escreverPresenca() {
+  const u = auth && auth.currentUser;
+  if (!u || !navigator.onLine) return;
+  ultimaPresenca = Date.now();
+  try {
+    await fb.setDoc(fb.doc(db, 'presenca', u.uid), {
+      ultimoAcesso: fb.serverTimestamp(), primeiraVisita: Number(localStorage.getItem(CHAVE_PRIMEIRA)) || Date.now(),
+      dias: diasDeUso(), origem: localStorage.getItem(CHAVE_ORIGEM) || 'direto',
+      origemUltima: origemAgora || (rodandoComoApp() ? 'app-instalado' : 'direto'),
+      ...infoAparelho(), versao: await versaoInstalada(), logado: !u.isAnonymous, tela: estado.view || 'hoje',
+      focando: !!(timer.rodando && timer.modo === 'foco'), contagens: contagensDeUso(),
+      visitas: Number(localStorage.getItem(CHAVE_VISITAS) || 1)
+    }, { merge: true });
+  } catch (_) { /* sem permissão ou sem internet: tenta na próxima */ }
+}
+
+function agendarPresenca(espera = 3000) {
+  clearTimeout(timerPresenca);
+  timerPresenca = setTimeout(escreverPresenca, espera);
+}
+
+async function apagarPresenca(uid) {
+  try { if (fb.deleteDoc) await fb.deleteDoc(fb.doc(db, 'presenca', uid)); } catch (_) {}
+}
+
+function iniciarPresenca() {
+  agendarPresenca(1000);
+  if (presencaIniciada) return;
+  presencaIniciada = true;
+  // "estou aqui" a cada 2 minutos enquanto o app está na tela
+  setInterval(() => { if (document.visibilityState === 'visible') escreverPresenca(); }, 120000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && Date.now() - ultimaPresenca > 30000) agendarPresenca(500);
+  });
+  ouvirAvisoGeral();
+}
+
+/* ---------- Aviso para todos (publicado no painel de admin) ---------- */
+function ouvirAvisoGeral() {
+  if (pararAviso) return;
+  try { pararAviso = fb.onSnapshot(fb.doc(db, 'app', 'aviso'), snap => mostrarAvisoGeral(snap.exists() ? snap.data() : null), () => {}); }
+  catch (_) {}
+}
+function mostrarAvisoGeral(a) {
+  const el = document.getElementById('aviso-geral');
+  if (!el) return;
+  if (!a || !a.ativo || !a.texto || localStorage.getItem('prazocerto:aviso-fechado') === String(a.versao)) { el.hidden = true; return; }
+  const tipo = ['info', 'novidade', 'alerta'].includes(a.tipo) ? a.tipo : 'info';
+  const emoji = { info: 'ℹ️', novidade: '🆕', alerta: '⚠️' }[tipo];
+  const link = typeof a.link === 'string' && /^https:\/\//.test(a.link) ? a.link : '';
+  el.className = `aviso-geral aviso-geral--${tipo}`;
+  el.innerHTML = `<span class="aviso-geral__icone" aria-hidden="true">${emoji}</span><p>${esc(String(a.texto).slice(0, 280))}</p>
+    ${link ? `<a href="${esc(link)}" target="_blank" rel="noopener" class="btn btn--ghost btn--sm">Ver mais</a>` : ''}
+    <button type="button" class="aviso-geral__fechar" aria-label="Fechar aviso">✕</button>`;
+  el.querySelector('.aviso-geral__fechar').addEventListener('click', () => {
+    localStorage.setItem('prazocerto:aviso-fechado', String(a.versao));
+    el.hidden = true;
+  });
+  el.hidden = false;
+}
+
 /* ---------- Início ---------- */
 lerConviteDaUrl();
 Store.aoMudar(agendarEnvio);
@@ -842,24 +1025,29 @@ window.Nuvem = {
   get status() { return status; }, get usuario() { return usuario; }, get amigos() { return [...amigosDados.values()]; }
 };
 
-// Quem já tinha entrado neste aparelho volta conectado sozinho
+// Quem já tinha entrado volta conectado sozinho; os outros visitantes entram como anônimos
+// (o Firebase carrega depois que a página abriu, para não atrasar o app)
 (async () => {
   const meta = lerMeta();
-  if (!pelaInternet() || !(meta.uid || meta.redirecionando)) {
-    renderConta();
-    renderSocial();
+  renderConta();
+  renderSocial();
+  if (!pelaInternet()) return;
+  const logado = !!(meta.uid || meta.redirecionando);
+  if (!logado) {
     if (lerPendente()) setTimeout(mostrarConvitePedindoLogin, 600);
-    return;
+    await new Promise(r => setTimeout(r, 1500));
+    if (!navigator.onLine) return;
   }
   try {
-    mudarStatus('carregando');
+    if (logado) mudarStatus('carregando');
     await carregarSDK();
     if (meta.redirecionando) {
       gravarMeta({ redirecionando: false });
-      await fb.getRedirectResult(auth).catch(tratarErro);
+      const r = await fb.getRedirectResult(auth).catch(tratarErro);
+      if (r && r.user && !r.user.isAnonymous) { await completarPerfil(r.user); aoMudarUsuario(auth.currentUser); }
     }
   } catch (erro) {
     // sem internet ao abrir: o app segue normal com os dados do aparelho
-    mudarStatus(navigator.onLine ? 'erro' : 'offline');
+    if (logado) mudarStatus(navigator.onLine ? 'erro' : 'offline');
   }
 })();

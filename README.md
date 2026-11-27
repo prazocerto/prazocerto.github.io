@@ -50,6 +50,7 @@ prazocerto/
 ├── index.html        → estrutura semântica (header, nav, main, section, form, fieldset, dialog, footer)
 ├── manifest.json     → dados do app instalável (nome, ícones, cores, atalhos)
 ├── sw.js             → service worker: guarda os arquivos para abrir sem internet
+├── admin.html        → painel de admin (acessos, origens, aviso para todos)
 ├── firestore.rules   → regras de segurança do Firestore (cada um só vê os próprios dados)
 ├── css/
 │   └── style.css     → tema claro/escuro (variáveis CSS), componentes, animações, responsividade
@@ -96,6 +97,7 @@ prazocerto/
 | 🎯 **Metas da semana** | Horas de foco e tarefas concluídas (segunda a domingo), com barras no Progresso e a conquista "Meta batida" |
 | 📊 **Relatório da semana** | Na primeira abertura da semana: horas de foco, tarefas, pontualidade e Pomodoros, comparação com a semana anterior, matéria mais estudada, matéria esquecida e dicas |
 | 📝 **Nesta sessão** | Na tela Foco, ao lado do cronômetro: as etapas da tarefa escolhida (para marcar sem sair do foco) e um bloco de notas. O texto fica salvo como rascunho enquanto você digita e, quando o ciclo termina (ou quando você conclui a tarefa), vai para as anotações da tarefa com data e hora |
+| 🛠️ **Painel de admin** (`admin.html`) | Só para o dono do app: quantas pessoas estão online agora, quantas usaram hoje / na semana / no mês, de onde vieram (Instagram, story, WhatsApp, QR code…), aparelho e sistema, quem instalou, versão instalada, uso de cada função e um **aviso para todos** que aparece no topo do app. Mostra só números — nunca o conteúdo das tarefas |
 | 🎧 **Sons de fundo** | Chuva, ondas do mar, ruído marrom e ruído branco, gerados com Web Audio (sem arquivos). Tocam só com o foco rodando, com volume próprio |
 | 🚫 **Foco sem distração** | Ao sair do app durante o foco (outro app no celular, outra aba ou outra janela no computador), a notificação "Volta pro foco!" sai na hora e o título da aba também chama de volta. Ao voltar, o app mostra quanto tempo você ficou fora. No 1º foco, o app pede a permissão de notificação. As saídas entram no relatório da semana |
 | 📲 **Atalhos do ícone** | Segurando o ícone do app instalado: Nova tarefa, Começar foco, Flashcards e Agenda. O app também aparece no menu "Compartilhar" do celular: um texto compartilhado de outro app (ex.: mensagem do grupo) vira tarefa |
@@ -202,6 +204,8 @@ Escreva tudo numa linha, por exemplo: `Lista de Cálculo amanhã 23:59 !alta #ca
 - Cada mudança é enviada 1,5 s depois. Os outros aparelhos recebem na hora (`onSnapshot`) e a tela se atualiza sozinha.
 - Som, volume e avisos ficam por aparelho; tarefas, matérias, aulas, sessões de foco, conquistas e preferências gerais sincronizam.
 - **Social:** `perfis/{uid}` guarda nome, foto, números da semana, se está focando e a lista de amigos (qualquer pessoa logada lê; só o dono grava). `grupos/{id}` guarda os trabalhos em grupo: quem tem o link vê a prévia e só pode se adicionar; só membros editam e listam.
+- **Acessos (painel de admin):** cada visitante entra como *anônimo* no Firebase e grava um documento em `presenca/{id}` com origem, aparelho e números de uso (quantas tarefas, minutos de foco…) — nunca o texto das tarefas. Quem entra com o Google depois continua com o mesmo id. Só a conta de admin (definida na função `admin()` das regras) consegue ler esses dados.
+- **Links de divulgação:** `prazocerto.github.io/?ref=story` (ou `instagram-bio`, `whatsapp`, `qrcode`…) faz a visita contar para aquele lugar no painel. O `?ref=` some do endereço assim que a página abre.
 - **Segurança:** as regras em `firestore.rules` só deixam cada pessoa ler e gravar o próprio documento de tarefas. A `apiKey` do Firebase não é secreta: ela só identifica o projeto, e quem protege os dados são as regras.
 
 ## 💾 Chaves no LocalStorage

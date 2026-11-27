@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Painel admin · PrazoCerto</title>
+  <link rel="icon" href="assets/icons/favicon-32.png" type="image/png" sizes="32x32">
+  <script>
+    (function () {
+      var tema = null;
+      try { tema = JSON.parse(localStorage.getItem('prazocerto:tema')); } catch (e) {}
+      if (!tema) tema = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', tema);
+    })();
+  </script>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    body { min-height: 100vh; }
+    .adm-topo { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px clamp(16px, 4vw, 40px); background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); }
+    .adm-marca { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.1rem; text-decoration: none; color: var(--text); }
+    .adm-marca__logo { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: linear-gradient(135deg, var(--primary), var(--primary-2)); font-size: 1.2rem; }
+    .adm-marca small { font-size: .72rem; font-weight: 800; padding: 2px 8px; border-radius: 999px; background: var(--primary-soft); color: var(--primary); }
+    .adm-acoes { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .adm-conta { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: .9rem; }
+    .adm-conta img, .av { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex: none; }
+    .av { display: inline-grid; place-items: center; background: var(--primary); color: #fff; font-weight: 800; font-size: .85rem; }
+    .av--anon { background: var(--surface-2); color: var(--muted); }
+    .adm { max-width: 1240px; margin: 0 auto; padding: 24px clamp(16px, 4vw, 40px) 60px; display: grid; gap: 20px; }
+    .adm h1 { margin: 0; font-size: clamp(1.5rem, 3vw, 2rem); }
+    .adm-cabecalho { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px; }
+    .adm-cabecalho .sub { margin: 4px 0 0; }
+    .ao-vivo { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: .85rem; color: var(--muted); }
+    .ao-vivo::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 60%, transparent); animation: pulso 2s infinite; }
+    @keyframes pulso { 70% { box-shadow: 0 0 0 9px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+    @media (prefers-reduced-motion: reduce) { .ao-vivo::before { animation: none; } }
+    .kpis-adm { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    @media (max-width: 760px) { .kpis-adm { grid-template-columns: repeat(2, 1fr); } }
+    .kpi-adm { padding: 16px 18px; display: grid; gap: 2px; }
+    .kpi-adm b { font-size: 2rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+    .kpi-adm span { color: var(--muted); font-weight: 600; font-size: .86rem; }
+    .kpi-adm small { color: var(--muted); font-size: .76rem; }
+    .kpi-adm--destaque { background: linear-gradient(135deg, var(--primary), var(--primary-2)); color: #fff; border-color: transparent; }
+    .kpi-adm--destaque span, .kpi-adm--destaque small { color: rgba(255,255,255,.85); }
+    .grade-adm { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; align-items: start; }
+    .bloco { padding: 20px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+    .bloco h2 { margin: 0; font-size: 1.1rem; }
+    .bloco .sub { margin: 0; }
+    .barras { display: grid; gap: 10px; }
+    .barra-linha { display: grid; grid-template-columns: minmax(120px, 38%) 1fr auto; align-items: center; gap: 10px; font-weight: 600; font-size: .92rem; }
+    .barra-linha .trilho { height: 12px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+    .barra-linha .trilho span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--primary), var(--primary-2)); }
+    .barra-linha b { font-variant-numeric: tabular-nums; min-width: 72px; text-align: right; }
+    .grafico { width: 100%; height: auto; display: block; }
+    .grafico text { fill: var(--muted); font: 600 11px var(--font); }
+    .grafico .valor { fill: var(--text); font-weight: 800; }
+    .legenda { display: flex; gap: 16px; flex-wrap: wrap; font-size: .85rem; font-weight: 600; color: var(--muted); }
+    .legenda i { display: inline-block; width: 12px; height: 12px; border-radius: 4px; margin-right: 6px; vertical-align: -1px; }
+    .lista-adm { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 420px; overflow: auto; }
+    .lista-adm li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+    .lista-adm li div { min-width: 0; }
+    .lista-adm b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lista-adm small { color: var(--muted); font-weight: 600; }
+    .tag { font-size: .74rem; font-weight: 800; padding: 2px 8px; border-radius: 999px; background: var(--surface); white-space: nowrap; }
+    .tag--foco { background: color-mix(in srgb, var(--success) 18%, transparent); color: var(--success); }
+    .tabela-adm { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    .tabela-adm th { text-align: left; font-size: .74rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    .tabela-adm td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .tabela-adm td.num, .tabela-adm th.num { font-variant-numeric: tabular-nums; text-align: right; }
+    .tabela-adm .pessoa { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+    .tabela-rolagem { overflow-x: auto; max-height: 460px; }
+    .form-aviso { display: grid; gap: 10px; }
+    .form-aviso textarea { min-height: 80px; resize: vertical; font-family: inherit; }
+    .aviso-previa { padding: 12px 14px; border-radius: var(--radius); border: 1.5px dashed var(--border); }
+    .links-ref { display: grid; gap: 8px; }
+    .link-ref { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 8px 10px 8px 12px; border-radius: 12px; background: var(--surface-2); }
+    .link-ref > div { min-width: 0; display: grid; gap: 2px; }
+    .link-ref b { font-size: .9rem; }
+    .link-ref code { font-size: .8rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tela-central { min-height: 70vh; display: grid; place-items: center; text-align: center; padding: 24px; }
+    .tela-central .card { padding: 32px 28px; max-width: 440px; display: grid; gap: 14px; justify-items: center; }
+    .tela-central .grande { font-size: 3rem; }
+    .vazio-adm { padding: 14px; border-radius: 12px; background: var(--surface-2); color: var(--muted); font-weight: 600; text-align: center; }
+    .atualizado { font-size: .8rem; color: var(--muted); font-weight: 600; }
+    @media (max-width: 600px) {
+      .barra-linha { grid-template-columns: 1fr auto; }
+      .barra-linha .trilho { grid-column: 1 / -1; grid-row: 2; }
+      .adm-conta span { display: none; }
+      .grade-adm { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header class="adm-topo">
+    <a class="adm-marca" href="index.html" title="Voltar ao app"><span class="adm-marca__logo" aria-hidden="true">⏰</span>PrazoCerto <small>ADMIN</small></a>
+    <div class="adm-acoes" id="adm-acoes">
+      <a class="btn btn--ghost btn--sm" href="index.html">← Voltar ao app</a>
+    </div>
+  </header>
+  <main id="conteudo" tabindex="-1">
+    <div class="tela-central" id="tela"><div class="card"><span class="grande" aria-hidden="true">⏳</span><p class="sub">Carregando o painel…</p></div></div>
+  </main>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <script type="module" src="js/admin.js"></script>
+</body>
+</html>

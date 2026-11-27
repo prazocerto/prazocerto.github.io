@@ -8,7 +8,7 @@
  * - Clique numa notificação de lembrete: abre o app na tarefa.
  * Os dados do aluno continuam no LocalStorage; aqui ficam só os arquivos.
  * ========================================================= */
-const VERSAO = 'prazocerto-v9';
+const VERSAO = 'prazocerto-v10';
 const ARQUIVOS = [
   './',
   './index.html',
@@ -18,6 +18,7 @@ const ARQUIVOS = [
   './js/storage.js',
   './js/app.js',
   './js/nuvem.js',
+  './js/firebase-config.js',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
   './assets/icons/icon-maskable-192.png',
